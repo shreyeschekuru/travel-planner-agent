@@ -65,10 +65,12 @@ travellite/
 │  │  ├─ src/routes/        prefetch.ts · sessions.ts · events.ts · refine.ts · select.ts
 │  │  ├─ src/orchestrator/  run-session.ts · rerun-branch.ts
 │  │  ├─ src/core/          constraints.ts · optimizer.ts · deltas.ts · budget-advice.ts
-│  │  ├─ src/llm/           client.ts · explain.ts · parse-delta.ts · grounding.ts
+│  │  ├─ src/llm/           client.ts · pricing.ts · untrusted.ts · json-items.ts
+│  │  │                     explain.ts · parse-delta.ts · grounding.ts (M2/M3)
 │  │  ├─ src/providers/     provider.ts · amadeus.ts · hotels.ts · activities.ts · resilience.ts
-│  │  ├─ src/store/         sessions.ts · events.ts · cache.ts · limits.ts · spend.ts
-│  │  └─ src/auth/          install-token.ts
+│  │  ├─ src/store/         redis.ts · keys.ts · sessions.ts · events.ts · cache.ts
+│  │  ├─ src/limits/        rate-limit.ts · spend.ts · semaphore.ts
+│  │  └─ src/auth/          install-token.ts · origin.ts
 │  └─ extension/
 │     ├─ src/popup/         TripForm.tsx · PackagesView.tsx · RefineBar.tsx · MyTrips.tsx
 │     ├─ src/worker/        sse.ts · api.ts · prefetch.ts

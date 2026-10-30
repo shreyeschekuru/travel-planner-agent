@@ -17,12 +17,12 @@ Effort: **S** = 1–2 days · **M** = 2–3 days · **L** = 3–5 days (single d
 ```
 🟢 MVP — Release 1.0  (~16 dev-weeks solo · ~8-week critical path)
 M0  Foundation
-├─ T0.1 [  ] Monorepo setup                        S
-├─ T0.2 [  ] Shared schemas package                M
-├─ T0.3 [  ] Redis store: sessions, events, cache  M
-├─ T0.4 [  ] Install token, rate limits, spend cap M
-├─ T0.5 [  ] Extension scaffold (MV3)              S
-└─ T0.6 [  ] LLM client wrapper                    M
+├─ T0.1 [x] Monorepo setup                        S
+├─ T0.2 [x] Shared schemas package                M
+├─ T0.3 [x] Redis store: sessions, events, cache  M
+├─ T0.4 [x] Install token, rate limits, spend cap M
+├─ T0.5 [x] Extension scaffold (MV3)              S
+└─ T0.6 [x] LLM client wrapper                    M
 M1  Search
 ├─ T1.1 [  ] Provider interface + resilience       M
 ├─ T1.2 [  ] Flights adapter (flex dates)          L
@@ -54,7 +54,7 @@ M5  Quality & launch
 ├─ T5.4 [  ] Deployment                            M
 ├─ T5.5 [  ] Privacy policy + store listing        S
 └─ T5.6 [  ] Beta: 50 sessions                     L
-MVP STATUS: 0/32
+MVP STATUS: 6/32
 
 ══════════ MVP → FULL GATE ══════════
 
@@ -121,6 +121,7 @@ FULL STATUS: 0/19
 ✓ events.ts: append (XADD), read from ID, blocking tail (XREAD)
 ✓ cache.ts: get/set with TTL; option-by-ID lookup
 ✓ Works against local Redis (docker compose) and managed Redis
+✓ Tests run on real Redis (DB 15); in-memory mocks don't implement streams correctly
 ✓ Tests: TTL expiry, event ordering, resume from ID
 ```
 
