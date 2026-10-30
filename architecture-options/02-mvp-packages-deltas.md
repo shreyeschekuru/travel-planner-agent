@@ -307,7 +307,7 @@ Typical session (initial + 2 refinements, 1 free-text): **~$0.0015** at $0.10 / 
 
 ## 13. Build Order (single developer, rough)
 
-| Week | Work |
+| Stage | Work (total ~16 dev-weeks solo; stages overlap when parallelized) |
 |---|---|
 | 1 | Shared Zod schemas, provider adapters + fixtures, Redis session store, auth |
 | 2 | Search + caching + prefetch + flex dates, joint optimizer + tests |

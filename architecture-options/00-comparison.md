@@ -62,7 +62,7 @@ Code still decides everything numeric; the LLM translates in (intent) and out (n
 | Main quality risk | Shallow, uncoordinated picks | Optimizer weights | LLM errors in itinerary/intent |
 | How it's tested | Mostly manual | Fixtures + small eval | Fixtures + 4 eval suites |
 | New data needed | — | Hotel location | Activity coordinates + hours, entry rules |
-| Build time (1 dev)* | ~4–5 weeks (as specced) | ~5–6 weeks | B + ~7 weeks |
+| Build time (1 dev)* | ~14 weeks (spec's own estimate) | ~16 weeks (~8-week critical path) | B + ~8 weeks |
 
 \* Estimates. Costs exclude thinking tokens; latency assumes a warm cache where prefetch applies.
 

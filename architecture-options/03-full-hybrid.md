@@ -311,7 +311,7 @@ Metrics added: intent-confirmation edits, narrative claim drop rate, agent quest
 
 ## 13. Build Order (single developer, rough, after B ships)
 
-| Weeks | Work |
+| Stage | Work (total ~8 dev-weeks solo) |
 |---|---|
 | 1–2 | Activity data (coordinates, hours), schedule builder + feasibility tests |
 | 3 | Narration + grounding validator + eval |

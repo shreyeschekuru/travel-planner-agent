@@ -15,7 +15,7 @@ Effort: **S** = 1–2 days · **M** = 2–3 days · **L** = 3–5 days (single d
 ## Task Status Dashboard
 
 ```
-🟢 MVP — Release 1.0  (~6 weeks)
+🟢 MVP — Release 1.0  (~16 dev-weeks solo · ~8-week critical path)
 M0  Foundation
 ├─ T0.1 [  ] Monorepo setup                        S
 ├─ T0.2 [  ] Shared schemas package                M
@@ -58,7 +58,7 @@ MVP STATUS: 0/32
 
 ══════════ MVP → FULL GATE ══════════
 
-🔵 FULL — Releases 1.5–2.0  (~7 weeks + optional 2.0)
+🔵 FULL — Releases 1.5–2.0  (~8 dev-weeks solo + ~1.5 for optional 2.0)
 R1.5  Itinerary + intent
 ├─ F1.1 [  ] Activity data enrichment              M
 ├─ F1.2 [  ] Schedule builder + feasibility        L
@@ -606,6 +606,87 @@ R1.6: F2.1 → F2.2 → F2.3 → F2.4      ‖  F2.5
 R1.7: F3.1 → F3.2 → F3.3 → F3.4
 R2.0: F4.1 → F4.2 → F4.3   (optional)
 ```
+
+---
+
+## 🟢 MVP Commit Plan
+
+The MVP ships as 5 milestone commits. Each one is built on its own branch (with as many small commits as needed) and squash-merged into `main` as a single commit. Every milestone must leave `main` green (lint, typecheck, tests) and demonstrable.
+
+| # | Commit message | Tasks | Effort | Demo after merge |
+|---|---|---|---|---|
+| 1 | `chore: foundation — monorepo, schemas, Redis, auth, LLM client` | T0.1–T0.6 | ~13 days | Install token issued; forged tokens and rate limits rejected; extension loads |
+| 2 | `feat(search): provider adapters, resilience, cache, prefetch` | T1.1–T1.6 | ~15 days | `POST /v1/prefetch` warms caches; fixture mode runs without API keys |
+| 3 | `feat(core): optimizer, explanations, sessions, SSE, select` | T2.1–T2.5, T3.4 | ~15 days | Full backend flow via curl: create session → stream packages + explanations → select |
+| 4 | `feat(extension): trip form, packages view, chip refinement, My Trips` | T4.1–T4.3, T4.5, T3.1, T3.3, T4.4 (chips) | ~19 days | **First usable product:** plan, refine with chips, select and save trips in Chrome |
+| 5 | `feat: free-text refinement, evals, observability, deploy` | T3.2, T4.4 (text box), T5.1–T5.5 | ~16 days | Free-text refine; eval suite gates CI; deployed; privacy policy live |
+
+T5.6 (beta, 50 sessions) runs after commit 5 and is not a code commit.
+
+### Commit 1: Foundation
+**Branch:** `m1-foundation` · **Tasks:** T0.1, T0.2, T0.3, T0.4, T0.5, T0.6
+```
+Includes: git init + npm workspaces, packages/schema (all Zod types), Redis session/event/
+cache store, install token + rate limits + spend cap, MV3 extension scaffold, Haiku 5.5
+client wrapper (structured outputs, prompt caching, traceable(), concurrency limit)
+Done when:
+✓ CI green (lint, typecheck, tests)
+✓ Schema, store and auth tests pass
+✓ Prompt-cache test shows cache_read_input_tokens > 0 on a repeated call
+```
+The LLM client lands here because it is infrastructure; commits 3 and 5 only add prompts.
+
+### Commit 2: Search
+**Branch:** `m2-search` · **Tasks:** T1.1, T1.2, T1.3, T1.4, T1.5, T1.6
+```
+Includes: SearchProvider interface, resilience (timeout, retry, breaker, shared token
+bucket), flights adapter with flex dates, hotels + activities adapters, search cache,
+prefetch endpoint, fixture recorder
+Done when:
+✓ Adapter tests pass on recorded fixtures
+✓ A session after prefetch makes zero provider calls for warmed categories
+✓ Fixture mode works with no provider credentials
+```
+**Start with:** confirming hotel and activity provider access (first step of T1.3/T1.4). If access fails, re-plan here.
+
+### Commit 3: Planning core
+**Branch:** `m3-core` · **Tasks:** T2.1, T2.2, T2.3, T2.4, T2.5, T3.4
+```
+Includes: constraint builder, joint optimizer, budget advice, explain call + grounding
+validator, orchestrator with Redis event stream + SSE resume + restart recovery,
+select endpoint (session deleted after)
+Done when:
+✓ Optimizer tests pass (totals, dates, budget, labels, < 50 ms benchmark)
+✓ Integration test: full session on fixtures + mocked LLM, no lost events
+✓ Disconnect and resume via Last-Event-ID works
+```
+Select is included so the backend flow is complete end to end before any UI exists.
+
+### Commit 4: Extension + chip refinement
+**Branch:** `m4-extension` · **Tasks:** T4.1, T4.2, T4.3, T4.5, T3.1, T3.3, T4.4 (chips only)
+```
+Includes: service worker SSE client, TripForm with prefetch, PackagesView, MyTrips,
+chip deltas + applyDelta, branch rerun + /refine, RefineBar (chips only)
+Done when:
+✓ Plan → refine with chips → select → saved trip, in Chrome
+✓ Closing the popup or dropping the network loses no progress
+✓ A hotel chip triggers zero flight/activity provider calls
+```
+Chips need no LLM, so the whole refine loop is tested without model variability.  
+**Rebalancing option:** commit 4 is the largest. Moving T3.1, T3.3 and the chip half of T4.4 to commit 5 evens the sizes, at the cost of a first product that can't refine.
+
+### Commit 5: LLM refinement + launch readiness
+**Branch:** `m5-launch` · **Tasks:** T3.2, T4.4 (text box), T5.1, T5.2, T5.3, T5.4, T5.5
+```
+Includes: free-text delta parser + RefineBar text box, eval suite in CI, dashboards +
+alerts + redaction checks, integration + k6 load tests, Docker + deployment (≥ 2
+instances), privacy policy + store listing
+Done when:
+✓ Evals gate CI against a stored baseline
+✓ Load test (100 concurrent sessions) meets p95 targets
+✓ Deployed; /health green; privacy disclosure complete
+```
+The eval suite is here because it covers delta parsing (T3.2).
 
 ---
 
