@@ -48,7 +48,7 @@ Sections are tagged 🟢 **MVP** or 🔵 **FULL**. Part 1 is the complete MVP de
 │  Provider adapters: timeout · retry · breaker · validation │
 └──────┬──────────────┼──────────────────────────────────────┘
        ▼              ▼
-  Redis               Amadeus · hotel provider · activity provider
+  Redis               Duffel (flights + stays) · Viator · ECB FX
   sessions · events   Claude Haiku 5.5
   caches · limits
   spend counter
@@ -65,10 +65,16 @@ travellite/
 │  │  ├─ src/routes/        prefetch.ts · sessions.ts · events.ts · refine.ts · select.ts
 │  │  ├─ src/orchestrator/  run-session.ts · rerun-branch.ts
 │  │  ├─ src/core/          constraints.ts · optimizer.ts · deltas.ts · budget-advice.ts
-│  │  ├─ src/llm/           client.ts · explain.ts · parse-delta.ts · grounding.ts
-│  │  ├─ src/providers/     provider.ts · amadeus.ts · hotels.ts · activities.ts · resilience.ts
-│  │  ├─ src/store/         sessions.ts · events.ts · cache.ts · limits.ts · spend.ts
-│  │  └─ src/auth/          install-token.ts
+│  │  ├─ src/llm/           client.ts · pricing.ts · untrusted.ts · json-items.ts
+│  │  │                     explain.ts · parse-delta.ts · grounding.ts (M2/M3)
+│  │  ├─ src/providers/     provider.ts · http.ts · resilience.ts · breaker.ts · token-bucket.ts
+│  │  │                     duffel-flights.ts · duffel-stays.ts · viator.ts · fx.ts
+│  │  │                     normalize.ts · fixtures.ts · index.ts
+│  │  ├─ src/search/        search.ts · date-pairs.ts
+│  │  ├─ scripts/           record-fixtures.ts · synth-fixtures.ts · synthetic.ts
+│  │  ├─ src/store/         redis.ts · keys.ts · sessions.ts · events.ts · cache.ts
+│  │  ├─ src/limits/        rate-limit.ts · spend.ts · semaphore.ts
+│  │  └─ src/auth/          install-token.ts · origin.ts
 │  └─ extension/
 │     ├─ src/popup/         TripForm.tsx · PackagesView.tsx · RefineBar.tsx · MyTrips.tsx
 │     ├─ src/worker/        sse.ts · api.ts · prefetch.ts
@@ -129,7 +135,7 @@ interface Constraints {
 
 // ---------- Normalized options ----------
 interface Option {
-  id: string;                      // "amadeus:…", "hotels:…", "activities:…"
+  id: string;                      // "duffel:off_…", "duffel:srr_…", "viator:…"
   category: "flight" | "hotel" | "activity";
   title: string;
   price: { amount: number; currency: "USD" };
@@ -139,8 +145,9 @@ interface Option {
   url: HttpsUrl;
   attrs: FlightAttrs | HotelAttrs | ActivityAttrs;
 }
-interface FlightAttrs   { depart_at: ISODateTime; arrive_at: ISODateTime;
-                          return_depart_at: ISODateTime; stops: number;
+interface FlightAttrs   { depart_at: LocalDateTime; arrive_at: LocalDateTime;   // airport-local,
+                          return_depart_at: LocalDateTime;                 // no offset
+                          return_arrive_at: LocalDateTime; stops: number;
                           duration_min: number; carrier: string }
 interface HotelAttrs    { checkin: ISODate; checkout: ISODate; nights: number;
                           km_from_center?: number }
@@ -210,20 +217,35 @@ Options themselves are stored in the search cache, keyed by option ID; the sessi
 Pure function `buildConstraints(config) → Constraints`. Defaults: `max_stops = 1`, `min_rating = 3.5`, `max_per_day = 2` (1 if `relaxed_pace`), `tolerance_pct = 5`.
 
 ### 5.2 Provider adapters 🟢
+| Category | Provider | Notes |
+|---|---|---|
+| Flights | Duffel `/air/offer_requests` | Replaces Amadeus Self-Service, shut down 2026-07-17 |
+| Hotels | Duffel Stays `/stays/search` | Same token, rate limit and breaker as flights |
+| Activities | Viator Partner API `/products/search` | Basic (affiliate) access |
+| FX | ECB daily reference rates | Cached 12 h; items with an unknown currency are dropped |
+
 ```ts
 interface SearchProvider<P> {
-  name: "amadeus" | "hotels" | "activities";
-  search(params: P, signal: AbortSignal): Promise<Result<Option[], ProviderError>>;
+  name: "duffel" | "viator";
+  category: "flight" | "hotel" | "activity";
+  search(params: P, signal?: AbortSignal): Promise<Result<Option[], ProviderError>>;
 }
-type ProviderError = { kind: "TIMEOUT" | "RATE_LIMIT" | "NOT_FOUND" | "BAD_PAYLOAD" | "AUTH";
+type ProviderError = { kind: "TIMEOUT" | "RATE_LIMIT" | "NOT_FOUND" | "BAD_PAYLOAD" | "AUTH"
+                             | "UNAVAILABLE" | "BREAKER_OPEN";
                        retry_after_ms?: number };
 ```
-- Wrapped by `resilience.ts`: `AbortSignal.timeout(2500)`, ≤ 1 retry on 429/5xx with jitter and `retry-after`, circuit breaker (open after 5 failures in 60 s, half-open after 30 s).
-- Raw responses validated with Zod; invalid items dropped and counted.
-- Normalization sets `price_basis` per provider; all prices converted to USD.
-- Shared Redis token bucket per provider (all instances).
-- Amadeus OAuth token cached until expiry; HTTP keep-alive agent.
-- **Flights with flex dates:** search the cheapest-date grid for ±`flex_days`, keep the best 2–3 date pairs, fetch full offers for those only.
+- All HTTP goes through a `Transport` (live `fetch`, fixture replay, or recording), wrapped per provider by `ResilientHttp`:
+  - per-attempt timeout: flights 7 s (Duffel `supplier_timeout` 5 s, since airlines answer slowly), hotels 4 s, activities 2.5 s;
+  - ≤ 1 retry on 429/5xx/network errors with jitter and `retry-after` (retries are skipped when the wait would exceed 1 s); no retry after a timeout;
+  - circuit breaker per instance (open after 5 failures in 60 s, one half-open trial after 30 s);
+  - shared Redis token bucket per provider, holding 2 s of tokens for bursts.
+- Status mapping: 401/403 → `AUTH`, 400/404/422 → `NOT_FOUND`, 429 → `RATE_LIMIT`, 5xx/network → `UNAVAILABLE`.
+- Raw responses validated with Zod; invalid items dropped and counted (`onDropped`).
+- Normalization sets `price_basis` (flights and hotels `total`, activities `per_person`) and converts prices to USD.
+- Booking URLs must be https on an allowlisted host (`www.google.com`, `www.viator.com`). Duffel has no consumer booking page, so flights and hotels link to a Google Flights / Google Hotels search. **Open decision before launch:** keep these, or book through Duffel (which would make Travellite a seller, against the "never books" requirement).
+- Destinations come from a fixed catalog (`packages/schema/src/cities.ts`) holding IATA code and city center. Viator destination IDs and tag names are looked up at runtime and cached 7 days.
+- **Flights with flex dates:** the whole trip shifts by −flex…+flex days (≤ 5 pairs, trip length unchanged). Duffel has no cheapest-date endpoint, so every pair is a full offer request, run in parallel and cached separately. The 3 pairs with the cheapest offers are kept, plus the top 10 flights across them. Hotels are searched for every candidate pair alongside flights and filtered to the kept pairs.
+- **Fixture mode** (`PROVIDER_MODE=fixture`, the default): replays `fixtures/` with dates shifted to the request. See `fixtures/README.md`.
 
 ### 5.3 Search cache 🟢
 | Key | TTL |
