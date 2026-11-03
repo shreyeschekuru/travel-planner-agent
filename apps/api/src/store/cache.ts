@@ -2,6 +2,8 @@ import { Option } from "@travellite/schema";
 import { keys } from "./keys.js";
 import type { RedisClient } from "./redis.js";
 
+export type JsonCache = Pick<Cache, "getJson" | "setJson">;
+
 /** JSON cache with TTL, plus option-by-ID storage so sessions can hold IDs only. */
 export class Cache {
   constructor(private readonly redis: RedisClient) {}

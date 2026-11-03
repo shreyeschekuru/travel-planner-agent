@@ -8,7 +8,9 @@
     "build": "tsup",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "fixtures:synth": "tsx scripts/synth-fixtures.ts",
+    "fixtures:record": "tsx --env-file-if-exists=../../.env scripts/record-fixtures.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.3.0",

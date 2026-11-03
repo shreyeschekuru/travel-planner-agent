@@ -44,7 +44,7 @@ Travellite plans whole trips, not individual bookings. The user enters trip deta
 ✓ MVP success metrics met (see bottom of this file)
 ✓ Eval suite running in CI
 ✓ Activity data with coordinates + opening hours confirmed for top destinations
-✓ Provider partner access confirmed (Booking.com, TripAdvisor or alternatives)
+✓ Provider access confirmed: Duffel Go-Live (flights + stays) and Viator affiliate access
 ```
 
 ---

@@ -6,6 +6,7 @@ import { HttpError } from "./errors.js";
 import type { RateGroup } from "./limits/rate-limit.js";
 import { healthRoutes } from "./routes/health.js";
 import { installRoutes } from "./routes/install.js";
+import { prefetchRoutes } from "./routes/prefetch.js";
 
 declare module "fastify" {
   interface FastifyContextConfig {
@@ -84,5 +85,6 @@ export async function buildApp(deps: Deps, opts: AppOptions = {}): Promise<Fasti
 
   await app.register(healthRoutes);
   await app.register(async (scope) => installRoutes(scope, deps));
+  await app.register(async (scope) => prefetchRoutes(scope, deps));
   return app;
 }

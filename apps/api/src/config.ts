@@ -30,16 +30,32 @@ const csv = z
       .filter(Boolean),
   );
 
-export const ConfigSchema = z.object({
-  PORT: z.coerce.number().int().positive().default(3000),
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  REDIS_URL: z.string().url().default("redis://localhost:6379"),
-  INSTALL_TOKEN_KEYS: KeyRing,
-  EXTENSION_IDS: csv,
-  ANTHROPIC_API_KEY: z.string().optional(),
-  LLM_DAILY_SPEND_CAP_USD: z.coerce.number().positive().default(20),
-  LLM_MAX_CONCURRENCY: z.coerce.number().int().positive().default(20),
-});
+export const ConfigSchema = z
+  .object({
+    PORT: z.coerce.number().int().positive().default(3000),
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    REDIS_URL: z.string().url().default("redis://localhost:6379"),
+    INSTALL_TOKEN_KEYS: KeyRing,
+    EXTENSION_IDS: csv,
+    ANTHROPIC_API_KEY: z.string().optional(),
+    LLM_DAILY_SPEND_CAP_USD: z.coerce.number().positive().default(20),
+    LLM_MAX_CONCURRENCY: z.coerce.number().int().positive().default(20),
+    /** "fixture" replays fixtures/ and needs no provider credentials. */
+    PROVIDER_MODE: z.enum(["fixture", "live"]).default("fixture"),
+    FIXTURES_DIR: z.string().optional(),
+    DUFFEL_ACCESS_TOKEN: z.string().optional(),
+    VIATOR_API_KEY: z.string().optional(),
+    /** Requests per second per provider, shared by all instances. */
+    DUFFEL_RATE_PER_SEC: z.coerce.number().positive().default(5),
+    VIATOR_RATE_PER_SEC: z.coerce.number().positive().default(10),
+  })
+  .superRefine((c, ctx) => {
+    if (c.PROVIDER_MODE !== "live") return;
+    for (const key of ["DUFFEL_ACCESS_TOKEN", "VIATOR_API_KEY"] as const) {
+      if (!c[key])
+        ctx.addIssue({ code: "custom", path: [key], message: "Required when PROVIDER_MODE=live" });
+    }
+  });
 export type Config = z.infer<typeof ConfigSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {

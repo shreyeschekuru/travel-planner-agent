@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { HttpsUrl, ISODate, ISODateTime, LatLng, Money } from "./primitives.js";
+import { HttpsUrl, ISODate, LatLng, LocalDateTime, Money } from "./primitives.js";
 import { Preference } from "./trip.js";
 
 export const OptionCategory = z.enum(["flight", "hotel", "activity"]);
@@ -9,9 +9,11 @@ export const PriceBasis = z.enum(["total", "per_night", "per_person"]);
 export type PriceBasis = z.infer<typeof PriceBasis>;
 
 export const FlightAttrs = z.object({
-  depart_at: ISODateTime,
-  arrive_at: ISODateTime,
-  return_depart_at: ISODateTime,
+  /** Local times at the departure or arrival airport. */
+  depart_at: LocalDateTime,
+  arrive_at: LocalDateTime,
+  return_depart_at: LocalDateTime,
+  return_arrive_at: LocalDateTime,
   stops: z.number().int().min(0),
   duration_min: z.number().int().positive(),
   carrier: z.string().min(1).max(64),
@@ -64,3 +66,15 @@ export type ActivityOption = z.infer<typeof ActivityOption>;
 
 export const Option = z.discriminatedUnion("category", [FlightOption, HotelOption, ActivityOption]);
 export type Option = z.infer<typeof Option>;
+
+/** Why a provider search failed. Sent to clients in `degraded` events. */
+export const ProviderErrorKind = z.enum([
+  "TIMEOUT",
+  "RATE_LIMIT",
+  "NOT_FOUND",
+  "BAD_PAYLOAD",
+  "AUTH",
+  "UNAVAILABLE",
+  "BREAKER_OPEN",
+]);
+export type ProviderErrorKind = z.infer<typeof ProviderErrorKind>;

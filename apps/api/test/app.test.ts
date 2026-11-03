@@ -1,15 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createDeps } from "../src/deps.js";
+import { createDeps, type Deps } from "../src/deps.js";
 import type { MessagesApi } from "../src/llm/client.js";
 import { testConfig, useRedis } from "./helpers.js";
 
 const redis = useRedis();
 let app: FastifyInstance;
+let deps: Deps;
 
 beforeEach(async () => {
-  const deps = createDeps(testConfig(), redis(), {} as MessagesApi);
+  deps = createDeps(testConfig(), redis(), {} as MessagesApi, { sleep: async () => {} });
   app = await buildApp(deps);
   // A protected test route to exercise the auth and rate-limit hooks.
   app.get("/v1/test/whoami", { config: { rateGroup: "sessions" } }, async (req) => ({
@@ -118,5 +119,77 @@ describe("errors", () => {
       payload: { extension_version: "0.1.0", pad: "x".repeat(20_000) },
     });
     expect(res.statusCode).toBe(413);
+  });
+});
+
+describe("POST /v1/prefetch", () => {
+  const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  const trip = () => ({
+    origin: "JFK",
+    destination: "lisbon-pt",
+    departure_date: inDays(40),
+    return_date: inDays(45),
+    date_flex_days: 0,
+    travelers: 2,
+  });
+
+  async function prefetch(payload: object, token?: string) {
+    const auth = token ?? (await install()).json().install_token;
+    return app.inject({
+      method: "POST",
+      url: "/v1/prefetch",
+      headers: { authorization: `Bearer ${auth}` },
+      payload,
+    });
+  }
+
+  it("returns 202 and warms the flight and hotel caches", async () => {
+    const res = await prefetch(trip());
+    expect(res.statusCode).toBe(202);
+    await deps.search.idle();
+    const t = trip();
+    const flights = await deps.cache.getJson<unknown[]>(
+      `flights:JFK:LIS:${t.departure_date}:${t.return_date}:2`,
+    );
+    const hotels = await deps.cache.getJson<unknown[]>(
+      `hotels:lisbon-pt:${t.departure_date}:${t.return_date}:2`,
+    );
+    expect(flights).toHaveLength(10);
+    expect(hotels).toHaveLength(10);
+    expect(await deps.cache.getJson("activities:lisbon-pt")).toBeNull();
+  });
+
+  it("warms once for identical requests", async () => {
+    const token = (await install()).json().install_token;
+    await prefetch(trip(), token);
+    await deps.search.idle();
+    await deps.cache.setJson(
+      `flights:JFK:LIS:${trip().departure_date}:${trip().return_date}:2`,
+      [],
+      60,
+    );
+    await prefetch(trip(), token);
+    await deps.search.idle();
+    // The second request didn't refetch, so the planted value survives.
+    expect(
+      await deps.cache.getJson(`flights:JFK:LIS:${trip().departure_date}:${trip().return_date}:2`),
+    ).toEqual([]);
+  });
+
+  it("requires a token", async () => {
+    const res = await app.inject({ method: "POST", url: "/v1/prefetch", payload: trip() });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it.each([
+    ["an unknown city", { destination: "atlantis-zz" }],
+    ["return before departure", { return_date: inDays(30) }],
+    ["a past departure", { departure_date: "2020-01-01", return_date: "2020-01-05" }],
+    ["a lowercase IATA code", { origin: "jfk" }],
+    ["extra fields", { budget_usd: 2000 }],
+  ])("rejects %s", async (_label, change) => {
+    const res = await prefetch({ ...trip(), ...change });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("INVALID_INPUT");
   });
 });

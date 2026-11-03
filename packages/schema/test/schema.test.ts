@@ -55,16 +55,17 @@ describe("VacationConfig", () => {
 });
 
 const flight = {
-  id: "amadeus:abc123",
+  id: "duffel:off_abc123",
   category: "flight",
   title: "Delta DL86",
   price: { amount: 840, currency: "USD" },
   price_basis: "total",
   url: "https://www.delta.com/book?x=1",
   attrs: {
-    depart_at: "2026-12-01T17:40:00-05:00",
-    arrive_at: "2026-12-02T07:25:00+01:00",
-    return_depart_at: "2026-12-07T10:15:00+01:00",
+    depart_at: "2026-12-01T17:40:00",
+    arrive_at: "2026-12-02T07:25:00",
+    return_depart_at: "2026-12-07T10:15:00",
+    return_arrive_at: "2026-12-07T13:05:00",
     stops: 0,
     duration_min: 525,
     carrier: "DL",
@@ -82,6 +83,11 @@ describe("Option", () => {
       expect(Option.safeParse({ ...flight, url }).success).toBe(false);
     },
   );
+
+  it("rejects flight times with an offset (they are airport-local)", () => {
+    const attrs = { ...flight.attrs, depart_at: "2026-12-01T17:40:00-05:00" };
+    expect(Option.safeParse({ ...flight, attrs }).success).toBe(false);
+  });
 
   it("rejects attrs that don't match the category", () => {
     expect(Option.safeParse({ ...flight, category: "hotel" }).success).toBe(false);

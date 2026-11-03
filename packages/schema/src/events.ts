@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ErrorCode } from "./errors.js";
 import { PackageExplanation } from "./llm.js";
-import { OptionCategory } from "./options.js";
+import { OptionCategory, ProviderErrorKind } from "./options.js";
 import { BudgetAdvice, TripPackage } from "./packages.js";
 import { ConstraintDelta } from "./refine.js";
 
@@ -15,14 +15,7 @@ export const SessionEvent = z.discriminatedUnion("event", [
     event: z.literal("degraded"),
     data: z.object({
       category: OptionCategory,
-      error_kind: z.enum([
-        "TIMEOUT",
-        "RATE_LIMIT",
-        "NOT_FOUND",
-        "BAD_PAYLOAD",
-        "AUTH",
-        "BREAKER_OPEN",
-      ]),
+      error_kind: ProviderErrorKind,
     }),
   }),
   z.object({ event: z.literal("packages"), data: z.array(TripPackage) }),

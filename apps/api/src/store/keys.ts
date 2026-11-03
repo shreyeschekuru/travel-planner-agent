@@ -7,4 +7,6 @@ export const keys = {
   rate: (group: string, subject: string, window: number) => `rate:${group}:${subject}:${window}`,
   spend: (day: string) => `spend:${day}`,
   semaphore: (name: string) => `sem:${name}`,
+  bucket: (provider: string) => `bucket:${provider}`,
+  prefetchLock: (hash: string) => `prefetch:${hash}`,
 };

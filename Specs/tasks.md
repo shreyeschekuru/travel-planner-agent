@@ -24,12 +24,12 @@ M0  Foundation
 ├─ T0.5 [x] Extension scaffold (MV3)              S
 └─ T0.6 [x] LLM client wrapper                    M
 M1  Search
-├─ T1.1 [  ] Provider interface + resilience       M
-├─ T1.2 [  ] Flights adapter (flex dates)          L
-├─ T1.3 [  ] Hotels adapter                        M
-├─ T1.4 [  ] Activities adapter                    M
-├─ T1.5 [  ] Search cache + prefetch endpoint      M
-└─ T1.6 [  ] Fixture recorder                      S
+├─ T1.1 [x] Provider interface + resilience       M
+├─ T1.2 [~] Flights adapter (flex dates)          L
+├─ T1.3 [~] Hotels adapter                        M
+├─ T1.4 [~] Activities adapter                    M
+├─ T1.5 [x] Search cache + prefetch endpoint      M
+└─ T1.6 [~] Fixture recorder                      S
 M2  Planning core
 ├─ T2.1 [  ] Constraint builder                    S
 ├─ T2.2 [  ] Joint optimizer                       L
@@ -54,7 +54,8 @@ M5  Quality & launch
 ├─ T5.4 [  ] Deployment                            M
 ├─ T5.5 [  ] Privacy policy + store listing        S
 └─ T5.6 [  ] Beta: 50 sessions                     L
-MVP STATUS: 6/32
+MVP STATUS: 8/32 done · 4 partial
+[~] = built and tested on synthetic fixtures; needs provider keys + a live recording
 
 ══════════ MVP → FULL GATE ══════════
 
@@ -176,31 +177,39 @@ FULL STATUS: 0/19
 ### T1.2: Flights adapter (flex dates) 🟢
 **Effort:** L · **Depends on:** T1.1
 ```
-✓ OAuth token cached until expiry; keep-alive agent
-✓ Cheapest-date search over ±flex_days; keep best 2–3 date pairs
-✓ Full offers for kept pairs → Option with FlightAttrs, price_basis set correctly
+✓ Provider: Duffel (Amadeus Self-Service shut down 2026-07-17). Static bearer token,
+  so no OAuth caching; Node fetch keeps connections alive
+✓ Flex: the whole trip shifts ±flex_days (≤5 pairs, searched in parallel); best 3
+  pairs kept by cheapest offer. Duffel has no cheapest-date endpoint, so each pair
+  is a full offer request
+✓ Option with FlightAttrs (airport-local times), price_basis "total"
 ✓ Sorted, top 10 across date pairs
-✓ Tests against recorded fixtures: normal, no results, invalid IATA, 429
+✓ Fixture tests: normal, no results, invalid IATA, 429
+☐ Live recording with a Duffel test token; confirm response shape matches
 ```
 
 ### T1.3: Hotels adapter 🟢
 **Effort:** M · **Depends on:** T1.1
 ```
-✓ Confirm provider access first (Booking.com partner API or an alternative)
+✓ Provider: Duffel Stays (test mode is self-serve; live needs Duffel's Go-Live review)
 ✓ Search per date pair; Option with HotelAttrs (nights, km_from_center, location)
-✓ price_basis normalized (per_night or total)
-✓ Top 10 per date pair by rating + price
-✓ Fixture tests: normal, no availability, invalid city, 429
+✓ price_basis "total" (cheapest rate for the stay); non-USD converted with ECB rates
+✓ Top 10 per date pair by rating, then price
+✓ Fixture tests: normal, no availability, invalid city, 429, GBP conversion
+☐ Live recording; confirm the search body and result shape against a real response
+☐ Booking links: Duffel has no consumer booking page, so links go to a Google
+  Hotels / Google Flights search for now. Decide before launch (see design §5.2)
 ```
 
 ### T1.4: Activities adapter 🟢
 **Effort:** M · **Depends on:** T1.1
 ```
-✓ Confirm provider access first (TripAdvisor or an alternative)
-✓ Option with ActivityAttrs (tags mapped to Preference enum, duration if available)
-✓ price_basis normalized (per_person or total)
-✓ Top 20 by rating; location captured when available
-✓ Fixture tests: normal, empty, 429
+✓ Provider: Viator Partner API, Basic (affiliate) access, self-serve
+✓ Option with ActivityAttrs (tag names mapped to Preference enum, duration)
+✓ price_basis "per_person" (Viator "from" price)
+✓ Top 20 by rating. Search results carry no coordinates; location left empty
+✓ Fixture tests: normal, empty, 429, provider down (degraded)
+☐ Confirm /products/search is open to Basic access (Viator's docs disagree)
 ```
 
 ### T1.5: Search cache + prefetch endpoint 🟢
@@ -217,8 +226,11 @@ FULL STATUS: 0/19
 **Effort:** S · **Depends on:** T1.2
 ```
 ✓ Script records real provider responses (secrets stripped) into fixtures/
-✓ Adapters can run in fixture mode via env flag
-✓ ≥ 10 destinations recorded, including a budget-breach case and a degraded case
+  (npm run fixtures:record -w @travellite/api)
+✓ Adapters run in fixture mode via PROVIDER_MODE=fixture (the default)
+✓ Fixture dates shift on replay, so recordings work for any travel dates
+~ 12 destinations with budget-breach and degraded cases, currently synthetic
+  (npm run fixtures:synth). Re-record live once keys exist
 ```
 
 ## M2: Planning core

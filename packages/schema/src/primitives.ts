@@ -16,6 +16,13 @@ export type ISODate = z.infer<typeof ISODate>;
 export const ISODateTime = z.iso.datetime({ offset: true });
 export type ISODateTime = z.infer<typeof ISODateTime>;
 
+/**
+ * Wall-clock time at the airport, with no offset, e.g. 2026-12-01T09:30:00.
+ * Flight providers report local times this way.
+ */
+export const LocalDateTime = z.iso.datetime({ local: true });
+export type LocalDateTime = z.infer<typeof LocalDateTime>;
+
 /** 24-hour clock time, HH:MM. */
 export const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Expected HH:MM");
 export type HHMM = z.infer<typeof HHMM>;

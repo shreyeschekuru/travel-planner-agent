@@ -9,6 +9,7 @@ Specs live in `Specs/`; architecture decisions in `architecture-options/`.
 packages/schema   Zod schemas + types shared by the API and the extension
 apps/api          Fastify API (Node 22+)
 apps/extension    Chrome MV3 extension (React + Vite)
+fixtures          Recorded provider responses (see fixtures/README.md)
 ```
 
 ## Development
@@ -25,6 +26,19 @@ npm run build -w @travellite/extension   # then load apps/extension/dist as an u
 
 The extension calls `http://localhost:3000` by default. Production builds require an https
 `VITE_API_BASE`, e.g. `VITE_API_BASE=https://api.travellite.dev npm run build -w @travellite/extension`.
+
+## Search providers
+
+Flights and hotels come from [Duffel](https://duffel.com/docs), activities from the
+[Viator Partner API](https://docs.viator.com/partner-api/). By default the API runs in
+fixture mode (`PROVIDER_MODE=fixture`) and replays `fixtures/`, so no provider keys are needed.
+To call the real APIs, set `PROVIDER_MODE=live`, `DUFFEL_ACCESS_TOKEN` (a `duffel_test_…`
+token works) and `VIATOR_API_KEY`.
+
+```bash
+npm run fixtures:record -w @travellite/api   # record real responses (needs both keys)
+npm run fixtures:synth -w @travellite/api    # regenerate the synthetic fixtures
+```
 
 ## Checks
 
