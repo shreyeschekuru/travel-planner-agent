@@ -37,9 +37,9 @@ M2  Planning core
 ├─ T2.4 [x] Explain + grounding validator         M
 └─ T2.5 [x] Orchestrator + SSE events             L
 M3  Refinement & selection
-├─ T3.1 [  ] Chip deltas + applyDelta              M
-├─ T3.2 [  ] Free-text delta parser                M
-├─ T3.3 [  ] Branch rerun                          M
+├─ T3.1 [x] Chip deltas + applyDelta              M
+├─ T3.2 [~] Free-text delta parser                M
+├─ T3.3 [x] Branch rerun                          M
 └─ T3.4 [x] Select endpoint + session deletion    S
 M4  Extension UI
 ├─ T4.1 [  ] Service worker: SSE + API client      M
@@ -54,8 +54,9 @@ M5  Quality & launch
 ├─ T5.4 [  ] Deployment                            M
 ├─ T5.5 [  ] Privacy policy + store listing        S
 └─ T5.6 [  ] Beta: 50 sessions                     L
-MVP STATUS: 14/32 done · 4 partial
-[~] = built and tested on synthetic fixtures; needs provider keys + a live recording
+MVP STATUS: 16/32 done · 5 partial
+[~] = built and tested offline; needs a live run (provider keys + a recording, or the
+      live LLM eval for T3.2)
 
 ══════════ MVP → FULL GATE ══════════
 
@@ -300,7 +301,9 @@ FULL STATUS: 0/19
 ✓ parse-delta.ts: one LLM call → ConstraintDelta, path limited to DeltaPath
 ✓ Text ≤ 200 chars, wrapped as data
 ✓ Unparseable → typed failure with "try a chip" message
-✓ Tests: 15 sample phrases map to expected deltas (also added to the eval set)
+✓ 15 sample phrases + 2 to reject in evals/parse-delta.json, graded on the
+  resulting constraints; unit tests cover the parsing path with a fake model
+☐ Run the live eval (LIVE_LLM_TESTS=1, under $0.02) and tune the prompt
 ```
 
 ### T3.3: Branch rerun 🟢
@@ -676,6 +679,8 @@ Done when:
 Select is included so the backend flow is complete end to end before any UI exists.
 
 ### Commit 4: Extension + chip refinement
+> T3.1, T3.3 and T3.2 (the server side of chip and text refinement) landed early, on
+> `m3-deltas`. What's left here and in commit 5 for refinement is the RefineBar UI.
 **Branch:** `m3-extension` · **Tasks:** T4.1, T4.2, T4.3, T4.5, T3.1, T3.3, T4.4 (chips only)
 ```
 Includes: service worker SSE client, TripForm with prefetch, PackagesView, MyTrips,

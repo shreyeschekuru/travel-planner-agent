@@ -10,4 +10,5 @@ export const keys = {
   bucket: (provider: string) => `bucket:${provider}`,
   prefetchLock: (hash: string) => `prefetch:${hash}`,
   runLock: (sessionId: string) => `runlock:${sessionId}`,
+  refineLock: (sessionId: string) => `refinelock:${sessionId}`,
 };

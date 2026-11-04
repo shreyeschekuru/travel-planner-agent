@@ -67,6 +67,7 @@ export function createDeps(
       events,
       search,
       llm,
+      cache,
       ...(opts.log ? { log: opts.log } : {}),
     }),
     sseHeartbeatMs: opts.sseHeartbeatMs ?? 15_000,

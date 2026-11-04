@@ -70,6 +70,9 @@ function merge<O extends Option>(units: Unit<O>[]): CategoryResult<O> {
   return { ok: true, options: good.flatMap((u) => u.options), cached: good.every((u) => u.cached) };
 }
 
+const shiftOf = (from: string, to: string) =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+
 const cheapest = (u: Unit<FlightOption>) =>
   u.ok && u.options.length ? Math.min(...u.options.map((o) => o.price.amount)) : Infinity;
 
@@ -123,6 +126,59 @@ export class SearchService {
       activities,
       date_pairs: kept.map((k) => k.pair),
     };
+  }
+
+  /**
+   * Re-searches only the `redo` categories, cache first, for the date pairs the previous
+   * results covered; the other categories reuse `prior` as is (design.md §5.7). A date change
+   * redoes everything, which is a full search.
+   */
+  async refresh(
+    req: SearchRequest,
+    prior: { flights: FlightOption[]; hotels: HotelOption[]; activities: ActivityOption[] },
+    redo: ReadonlySet<OptionCategory>,
+    signal?: AbortSignal,
+  ): Promise<SearchResults> {
+    const city = cityById(req.destination);
+    if (!city || (redo.has("flight") && redo.has("hotel") && redo.has("activity"))) {
+      return this.search(req, signal);
+    }
+    const seen = new Map<string, DatePair>();
+    for (const f of prior.flights) {
+      const pair = {
+        depart: f.attrs.depart_at.slice(0, 10),
+        return: f.attrs.return_depart_at.slice(0, 10),
+      };
+      const key = `${pair.depart}|${pair.return}`;
+      if (!seen.has(key)) seen.set(key, { ...pair, shift: shiftOf(req.depart, pair.depart) });
+    }
+    const pairs = seen.size ? [...seen.values()] : datePairs(req.depart, req.return, 0, this.now());
+    const reused = <O extends Option>(options: O[]): CategoryResult<O> => ({
+      ok: true,
+      options,
+      cached: true,
+    });
+
+    const [flights, hotels, activities] = await Promise.all([
+      redo.has("flight")
+        ? Promise.all(pairs.map((p) => this.flightUnit(req, city, p, signal))).then((units) => {
+            const m = merge(units);
+            return m.ok
+              ? {
+                  ...m,
+                  options: m.options
+                    .sort((a, b) => a.price.amount - b.price.amount)
+                    .slice(0, MAX_FLIGHTS),
+                }
+              : m;
+          })
+        : reused(prior.flights),
+      redo.has("hotel")
+        ? Promise.all(pairs.map((p) => this.hotelUnit(req, city, p, signal))).then(merge)
+        : reused(prior.hotels),
+      redo.has("activity") ? this.activities(city, signal) : reused(prior.activities),
+    ]);
+    return { flights, hotels, activities, date_pairs: pairs };
   }
 
   /** Warms the flight and hotel caches for every candidate date pair. Never throws. */

@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
   cityById,
+  type ActivityOption,
   type ErrorCode,
+  type FlightOption,
+  type HotelOption,
+  type Option,
   type OptionCategory,
   type PackageExplanation,
   type SessionEvent,
@@ -10,11 +14,13 @@ import {
 } from "@travellite/schema";
 import { traceable } from "langsmith/traceable";
 import { budgetAdvice } from "../core/budget-advice.js";
+import { invalidated } from "../core/deltas.js";
 import { optimize } from "../core/optimizer.js";
 import type { LlmClient } from "../llm/client.js";
 import { explainPackages } from "../llm/explain.js";
 import type { ProviderError } from "../providers/provider.js";
 import type { CategoryResult, SearchRequest, SearchService } from "../search/search.js";
+import type { Cache } from "../store/cache.js";
 import type { EventStore } from "../store/events.js";
 import { keys } from "../store/keys.js";
 import type { RedisClient } from "../store/redis.js";
@@ -30,6 +36,7 @@ export interface RunnerDeps {
   events: EventStore;
   search: SearchService;
   llm: LlmClient;
+  cache: Cache;
   now?: () => Date;
   log?: (err: unknown, msg: string) => void;
 }
@@ -120,7 +127,7 @@ export class SessionRunner {
       for (const key of found) {
         const id = key.slice(keys.session("").length);
         const s = await this.deps.sessions.get(id);
-        if (s?.status === "searching") {
+        if (s?.status === "searching" || s?.status === "refining") {
           this.start(id);
           started++;
         }
@@ -136,7 +143,7 @@ export class SessionRunner {
     if (!locked) return; // another instance is running it
     try {
       const session = await this.deps.sessions.get(id);
-      if (!session || session.status !== "searching") return;
+      if (!session || (session.status !== "searching" && session.status !== "refining")) return;
       // Only the session ID is traced; places and dates stay out of spans (design.md §9).
       await traceable((_span: { session: string }) => this.steps(session), {
         name: "session",
@@ -155,7 +162,15 @@ export class SessionRunner {
   private async steps(initial: SessionRecord): Promise<void> {
     let session = initial;
     const { events, sessions } = this.deps;
-    const prior = await events.readAfter(session.id, "0", 1000);
+    // A refinement starts a new round at its refine_applied event; only this round's events
+    // count when skipping work a previous run already did.
+    const all = await events.readAfter(session.id, "0", 1000);
+    const roundStart = all.findLastIndex((p) => p.event.event === "refine_applied");
+    const prior = all.slice(roundStart + 1);
+    const previous = new Map(session.packages.map((p) => [p.id, p] as const));
+    const previousExplanations = new Map(
+      session.explanations.map((e) => [e.package_id, e] as const),
+    );
     const sent = new Set(prior.map((p) => eventKey(p.event)));
     const emit = async (e: SessionEvent) => {
       const k = eventKey(e);
@@ -181,7 +196,10 @@ export class SessionRunner {
     } else {
       // Steps 1–2 (constraints were built when the session was created): search.
       const req = searchRequest(session);
-      const r = await this.deps.search.search(req);
+      const r =
+        session.status === "refining"
+          ? await this.refreshResults(session, req)
+          : await this.deps.search.search(req);
       const fetched_at = this.now().toISOString();
       const categories: [OptionCategory, CategoryResult][] = [
         ["flight", r.flights],
@@ -238,11 +256,12 @@ export class SessionRunner {
           event: "error",
           data: {
             code: "NOT_FOUND",
-            message: `No ${what} match this trip. Try other dates.`,
+            message: `No ${what} match these settings. Try a different change.`,
             retryable: false,
           },
         });
-        await save({ status: "awaiting_selection" });
+        // Packages from an earlier round no longer match the constraints.
+        await save({ status: "awaiting_selection", packages: [], explanations: [] });
         return;
       }
       if (result.kind === "over_budget") {
@@ -252,18 +271,28 @@ export class SessionRunner {
           data: budgetAdvice(input, session.constraints, grid),
         });
         // Refinement (e.g. a higher budget) can still continue from here.
-        await save({ status: "awaiting_selection" });
+        await save({ status: "awaiting_selection", packages: [], explanations: [] });
         return;
       }
       packages = result.packages;
-      await save({ packages });
+      // Explanations are saved with their packages at the end of the round.
+      await save({ packages, explanations: [] });
       await emit({ event: "packages", data: packages });
     }
 
-    // Step 4: explain. Reuse explanations a previous run already sent.
+    // Step 4: explain. Reuse explanations this round already sent, and those of packages a
+    // refinement left exactly as they were.
     const explained = new Map<string, PackageExplanation>();
     for (const p of prior)
       if (p.event.event === "explanation") explained.set(p.event.data.package_id, p.event.data);
+    for (const p of packages) {
+      const before = previous.get(p.id);
+      const e = previousExplanations.get(p.id);
+      if (!explained.has(p.id) && e && before && JSON.stringify(before) === JSON.stringify(p)) {
+        explained.set(p.id, e);
+        await emit({ event: "explanation", data: e });
+      }
+    }
     const missing = packages.filter((p) => !explained.has(p.id));
     if (missing.length) {
       await explainPackages(this.deps.llm, missing, session.constraints, async (e) => {
@@ -279,6 +308,26 @@ export class SessionRunner {
       status: "awaiting_selection",
     });
     await emit({ event: "awaiting_selection", data: {} });
+  }
+
+  /** Results after a refinement: invalidated categories re-searched, the rest from the option store. */
+  private async refreshResults(session: SessionRecord, req: SearchRequest) {
+    const delta = session.delta_history.at(-1);
+    const redo = new Set(delta ? invalidated(delta) : (["flight", "hotel", "activity"] as const));
+    const load = async <O extends Option>(category: OptionCategory): Promise<O[]> => {
+      const ids = session.results[category]?.option_ids ?? [];
+      const found = await this.deps.cache.getOptions(ids);
+      // Expired or degraded results can't be reused.
+      if (found.size < ids.length || session.results[category]?.degraded !== false)
+        redo.add(category);
+      return ids.flatMap((id) => (found.get(id) as O | undefined) ?? []);
+    };
+    const prior = {
+      flights: await load<FlightOption>("flight"),
+      hotels: await load<HotelOption>("hotel"),
+      activities: await load<ActivityOption>("activity"),
+    };
+    return this.deps.search.refresh(req, prior, redo);
   }
 
   private async fail(

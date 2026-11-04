@@ -9,6 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createDeps, type Deps } from "../src/deps.js";
+import { findFixturesDir, fixtureTransport } from "../src/providers/fixtures.js";
 import { isAllowedBookingUrl } from "../src/providers/normalize.js";
 import { keys } from "../src/store/keys.js";
 import { fakeExplainLlm } from "./fake-llm.js";
@@ -20,15 +21,39 @@ let app: FastifyInstance;
 let deps: Deps;
 let base: string;
 let llmCalls: () => number;
+let fakeParse: ReturnType<typeof fakeExplainLlm>["parse"];
+/** Provider calls by kind: flights, hotels, activities, lookup. */
+let providerCalls: string[];
+
+const callKind = (url: string) => {
+  const path = new URL(url).pathname;
+  if (path.includes("offer_requests")) return "flights";
+  if (path.includes("stays")) return "hotels";
+  if (path.includes("products/search")) return "activities";
+  return "lookup";
+};
 
 async function start(env: Record<string, string> = {}) {
   const fake = fakeExplainLlm("grounded");
   llmCalls = () => fake.stream.mock.calls.length;
+  fakeParse = fake.parse;
+  providerCalls = [];
+  const fixtures = fixtureTransport(findFixturesDir());
   deps = createDeps(
     testConfig({ DUFFEL_RATE_PER_SEC: "100", VIATOR_RATE_PER_SEC: "100", ...env }),
     redis(),
     fake.messages,
-    { providers: { sleep: async () => {} }, sseHeartbeatMs: 200, log: () => {} },
+    {
+      providers: {
+        sleep: async () => {},
+        transport: (req, signal) => {
+          providerCalls.push(callKind(req.url));
+          return fixtures(req, signal);
+        },
+      },
+      sseHeartbeatMs: 200,
+      log: () => {},
+    },
   );
   // The test HTTP client can leave a fresh, unused socket open, which would stall close().
   app = await buildApp(deps, { forceCloseConnections: true });
@@ -158,6 +183,7 @@ describe("full session", () => {
     expect(names.at(-1)).toBe("awaiting_selection");
     expect(llmCalls()).toBe(1);
 
+    await deps.runner.idle();
     const session = await deps.sessions.get(id);
     expect(session?.status).toBe("awaiting_selection");
     expect(session?.explanations).toHaveLength(packages.length);
@@ -353,5 +379,244 @@ describe("restart recovery", () => {
     const names = (await deps.events.readAfter(id)).map((e) => e.event.event);
     expect(names.filter((n) => n === "packages")).toHaveLength(1);
     expect(llmCalls()).toBe(1);
+  });
+});
+
+describe("POST /v1/sessions/:id/refine", () => {
+  async function ready(config = trip()) {
+    await start();
+    const token = await install();
+    const id = await createSession(token, config);
+    const { events } = await readEvents(id, token, { until: finished });
+    return { token, id, lastId: events.at(-1)!.id };
+  }
+
+  /** Sends a refinement and reads the stream from `after` until that round finishes. */
+  async function refine(token: string, id: string, after: string, body: object) {
+    const started = performance.now();
+    const res = await post(`/v1/sessions/${id}/refine`, token, body);
+    if (res.status !== 202) {
+      return { status: res.status, body: { changed: false }, events: [] as Received[], ms: 0 };
+    }
+    const reply = (await res.json()) as { changed: boolean };
+    const { events } = await readEvents(id, token, {
+      lastEventId: after,
+      until: (e) => !reply.changed || finished(e),
+    });
+    const ms = performance.now() - started;
+    await deps.runner.idle();
+    return { status: 202, body: reply, events, ms };
+  }
+
+  it("applies a hotel chip with zero flight or activity provider calls", async () => {
+    const { token, id, lastId } = await ready();
+    providerCalls.length = 0;
+    const r = await refine(token, id, lastId, { chip: "cheaper_hotel" });
+    expect(r.status).toBe(202);
+    expect(r.events[0]).toMatchObject({ event: "refine_applied", data: { changed: true } });
+    expect(r.events.at(-1)!.event).toBe("awaiting_selection");
+    expect(providerCalls.filter((k) => k === "flights" || k === "activities")).toEqual([]);
+
+    const session = (await deps.sessions.get(id))!;
+    const cap = session.constraints.hotel.max_price_per_night_usd!;
+    expect(cap).toBeGreaterThan(0);
+    for (const p of session.packages) {
+      expect(p.hotel.price.amount / p.hotel.attrs.nights).toBeLessThanOrEqual(cap);
+    }
+    expect(session.delta_history).toHaveLength(1);
+  });
+
+  it("finishes chip refinements well within 2.5 s (p95) on fixtures", async () => {
+    const { token, id } = await ready();
+    const chips = [
+      "better_hotel",
+      "more_activities",
+      "fewer_stops",
+      "shift_dates_later",
+      "shift_dates_earlier",
+    ];
+    const times: number[] = [];
+    for (const chip of chips) {
+      const after = (await deps.events.readAfter(id)).at(-1)!.id;
+      const r = await refine(token, id, after, { chip });
+      expect(r.status).toBe(202);
+      if (r.body.changed) times.push(r.ms);
+    }
+    times.sort((a, b) => a - b);
+    expect(times[Math.ceil(times.length * 0.95) - 1]!).toBeLessThan(2500);
+  });
+
+  it("re-searches everything for a date change", async () => {
+    const { token, id, lastId } = await ready();
+    providerCalls.length = 0;
+    const r = await refine(token, id, lastId, { chip: "shift_dates_later" });
+    expect(r.events.at(-1)!.event).toBe("awaiting_selection");
+    expect(providerCalls).toContain("flights");
+    expect(providerCalls).toContain("hotels");
+    const s = (await deps.sessions.get(id))!;
+    expect(s.packages.every((p) => p.hotel.attrs.checkin === s.constraints.dates.depart)).toBe(
+      true,
+    );
+  });
+
+  it("reuses explanations for packages a refinement didn't change", async () => {
+    const { token, id, lastId } = await ready();
+    const before = (await deps.sessions.get(id))!;
+    const calls = llmCalls();
+    // A hotel price cap far above every hotel changes the constraints but none of the packages.
+    fakeParse.mockResolvedValue({
+      stop_reason: "end_turn",
+      parsed_output: {
+        understood: true,
+        ops: [{ path: "hotel.max_price_per_night_usd", op: "set", value: 50_000 }],
+        reason: "Hotel max price set to $50,000/night",
+      },
+      usage: { input_tokens: 900, output_tokens: 40 },
+    });
+    const r = await refine(token, id, lastId, { text: "hotels under 50000 a night" });
+    expect(r.events.at(-1)!.event).toBe("awaiting_selection");
+    const after = (await deps.sessions.get(id))!;
+    expect(after.packages).toEqual(before.packages);
+    expect(after.explanations).toEqual(before.explanations);
+    expect(r.events.filter((e) => e.event === "explanation")).toHaveLength(before.packages.length);
+    expect(llmCalls()).toBe(calls);
+  });
+
+  it("returns current packages with a notice when nothing changes", async () => {
+    const { token, id, lastId } = await ready();
+    const first = await refine(token, id, lastId, { chip: "fewer_stops" });
+    const after = first.events.at(-1)!.id;
+    const second = await refine(token, id, after, { chip: "fewer_stops" });
+    expect(second.body).toMatchObject({ changed: false });
+    expect(second.events).toEqual([
+      expect.objectContaining({
+        event: "refine_applied",
+        data: expect.objectContaining({ changed: false }),
+      }),
+    ]);
+    expect((await deps.sessions.get(id))!.delta_history).toHaveLength(1);
+  });
+
+  it("applies a free-text refinement through the parser", async () => {
+    const { token, id, lastId } = await ready();
+    fakeParse.mockResolvedValue({
+      stop_reason: "end_turn",
+      parsed_output: {
+        understood: true,
+        ops: [{ path: "budget.total_usd", op: "set", value: 5000 }],
+        reason: "Budget raised to $5,000",
+      },
+      usage: { input_tokens: 900, output_tokens: 40 },
+    });
+    const r = await refine(token, id, lastId, { text: "raise my budget to 5000" });
+    expect(r.status).toBe(202);
+    expect(r.events[0]!.data).toMatchObject({ delta: { reason: "Budget raised to $5,000" } });
+    expect((await deps.sessions.get(id))!.constraints.budget.total_usd).toBe(5000);
+    // A budget change re-searches nothing.
+    expect(providerCalls.slice(-3)).not.toContain("flights");
+  });
+
+  it("asks for a chip when the text can't be parsed", async () => {
+    const { token, id } = await ready();
+    fakeParse.mockResolvedValue({
+      stop_reason: "end_turn",
+      parsed_output: { understood: false, ops: [], reason: "" },
+      usage: { input_tokens: 900, output_tokens: 10 },
+    });
+    const res = await post(`/v1/sessions/${id}/refine`, token, { text: "what's the weather?" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toBe(
+      "Couldn't apply that, try a chip",
+    );
+  });
+
+  it("clears packages when a refinement leaves nothing that fits", async () => {
+    const { token, id, lastId } = await ready();
+    fakeParse.mockResolvedValue({
+      stop_reason: "end_turn",
+      parsed_output: {
+        understood: true,
+        ops: [{ path: "budget.total_usd", op: "set", value: 500 }],
+        reason: "Budget lowered to $500",
+      },
+      usage: { input_tokens: 900, output_tokens: 40 },
+    });
+    const r = await refine(token, id, lastId, { text: "budget 500" });
+    expect(r.events.at(-1)!.event).toBe("budget_advice");
+    // The event is written before the record, so a restart can always resume from the stream.
+    await deps.runner.idle();
+    const s = (await deps.sessions.get(id))!;
+    expect(s.packages).toEqual([]);
+    expect(s.status).toBe("awaiting_selection");
+  });
+
+  it("rejects a delta that breaks a bound", async () => {
+    const { token, id } = await ready(trip({ departure_date: inDays(1), return_date: inDays(4) }));
+    // inDays(1) earlier would still be today; two earlier is in the past.
+    await refine(token, id, (await deps.events.readAfter(id)).at(-1)!.id, {
+      chip: "shift_dates_earlier",
+    });
+    const res = await post(`/v1/sessions/${id}/refine`, token, { chip: "shift_dates_earlier" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toMatch(/past/);
+  });
+
+  it("allows at most 10 refinements per session", async () => {
+    const { token, id } = await ready();
+    const s = (await deps.sessions.get(id))!;
+    const delta = {
+      ops: [{ path: "budget.total_usd" as const, op: "add" as const, value: 1 }],
+      reason: "x",
+    };
+    await deps.sessions.put({ ...s, delta_history: Array(10).fill(delta) });
+    const res = await post(`/v1/sessions/${id}/refine`, token, { chip: "more_activities" });
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses a second refinement while one is running", async () => {
+    const { token, id } = await ready();
+    const s = (await deps.sessions.get(id))!;
+    await deps.sessions.put({ ...s, status: "refining" });
+    const res = await post(`/v1/sessions/${id}/refine`, token, { chip: "more_activities" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { retryable: boolean }).retryable).toBe(true);
+  });
+
+  it("rejects bodies that are neither a chip nor text", async () => {
+    const { token, id } = await ready();
+    for (const body of [
+      { chip: "free_upgrade" },
+      { text: "" },
+      { text: "x".repeat(201) },
+      { chip: "fewer_stops", text: "x" },
+    ]) {
+      expect((await post(`/v1/sessions/${id}/refine`, token, body)).status).toBe(400);
+    }
+  });
+
+  it("is 404 for another install", async () => {
+    const { id } = await ready();
+    const other = await install();
+    expect((await post(`/v1/sessions/${id}/refine`, other, { chip: "fewer_stops" })).status).toBe(
+      404,
+    );
+  });
+
+  it("recovers a refinement interrupted by a restart", async () => {
+    const { token, id, lastId } = await ready();
+    await refine(token, id, lastId, { chip: "more_activities" });
+    // Rewind to just after refine_applied, as if the instance died there.
+    const all = await deps.events.readAfter(id);
+    const cut = all.findLastIndex((e) => e.event.event === "refine_applied");
+    await deps.events.delete(id);
+    for (const e of all.slice(0, cut + 1)) await deps.events.append(id, e.event);
+    const s = (await deps.sessions.get(id))!;
+    await deps.sessions.put({ ...s, status: "refining" });
+
+    expect(await deps.runner.recover()).toBe(1);
+    await deps.runner.idle();
+    const names = (await deps.events.readAfter(id)).map((e) => e.event.event);
+    expect(names).toEqual(all.map((e) => e.event.event));
+    expect((await deps.sessions.get(id))!.status).toBe("awaiting_selection");
   });
 });

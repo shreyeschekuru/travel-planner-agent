@@ -53,5 +53,6 @@ export function fakeExplainLlm(behavior: ExplainBehavior = "grounded") {
       finalMessage: async () => final,
     };
   });
-  return { messages: { parse: vi.fn(), stream } as unknown as MessagesApi, stream };
+  const parse = vi.fn();
+  return { messages: { parse, stream } as unknown as MessagesApi, stream, parse };
 }
