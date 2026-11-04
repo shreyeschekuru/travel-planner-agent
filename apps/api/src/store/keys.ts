@@ -9,4 +9,5 @@ export const keys = {
   semaphore: (name: string) => `sem:${name}`,
   bucket: (provider: string) => `bucket:${provider}`,
   prefetchLock: (hash: string) => `prefetch:${hash}`,
+  runLock: (sessionId: string) => `runlock:${sessionId}`,
 };

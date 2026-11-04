@@ -50,6 +50,13 @@ export const ConfigSchema = z
     VIATOR_RATE_PER_SEC: z.coerce.number().positive().default(10),
   })
   .superRefine((c, ctx) => {
+    if (c.NODE_ENV === "production" && c.EXTENSION_IDS.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["EXTENSION_IDS"],
+        message: "Required in production (the event stream checks Origin against it)",
+      });
+    }
     if (c.PROVIDER_MODE !== "live") return;
     for (const key of ["DUFFEL_ACCESS_TOKEN", "VIATOR_API_KEY"] as const) {
       if (!c[key])

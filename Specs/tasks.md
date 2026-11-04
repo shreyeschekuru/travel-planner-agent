@@ -31,16 +31,16 @@ M1  Search
 ├─ T1.5 [x] Search cache + prefetch endpoint      M
 └─ T1.6 [~] Fixture recorder                      S
 M2  Planning core
-├─ T2.1 [  ] Constraint builder                    S
-├─ T2.2 [  ] Joint optimizer                       L
-├─ T2.3 [  ] Budget advice                         S
-├─ T2.4 [  ] Explain + grounding validator         M
-└─ T2.5 [  ] Orchestrator + SSE events             L
+├─ T2.1 [x] Constraint builder                    S
+├─ T2.2 [x] Joint optimizer                       L
+├─ T2.3 [x] Budget advice                         S
+├─ T2.4 [x] Explain + grounding validator         M
+└─ T2.5 [x] Orchestrator + SSE events             L
 M3  Refinement & selection
 ├─ T3.1 [  ] Chip deltas + applyDelta              M
 ├─ T3.2 [  ] Free-text delta parser                M
 ├─ T3.3 [  ] Branch rerun                          M
-└─ T3.4 [  ] Select endpoint + session deletion    S
+└─ T3.4 [x] Select endpoint + session deletion    S
 M4  Extension UI
 ├─ T4.1 [  ] Service worker: SSE + API client      M
 ├─ T4.2 [  ] TripForm + prefetch                   M
@@ -54,7 +54,7 @@ M5  Quality & launch
 ├─ T5.4 [  ] Deployment                            M
 ├─ T5.5 [  ] Privacy policy + store listing        S
 └─ T5.6 [  ] Beta: 50 sessions                     L
-MVP STATUS: 8/32 done · 4 partial
+MVP STATUS: 14/32 done · 4 partial
 [~] = built and tested on synthetic fixtures; needs provider keys + a live recording
 
 ══════════ MVP → FULL GATE ══════════
@@ -637,7 +637,7 @@ The MVP ships as 5 milestone commits. Each one is built on its own branch (with 
 T5.6 (beta, 50 sessions) runs after commit 5 and is not a code commit.
 
 ### Commit 1: Foundation
-**Branch:** `m1-foundation` · **Tasks:** T0.1, T0.2, T0.3, T0.4, T0.5, T0.6
+**Branch:** `m0-foundation` · **Tasks:** T0.1, T0.2, T0.3, T0.4, T0.5, T0.6
 ```
 Includes: git init + npm workspaces, packages/schema (all Zod types), Redis session/event/
 cache store, install token + rate limits + spend cap, MV3 extension scaffold, Haiku 5.5
@@ -650,7 +650,7 @@ Done when:
 The LLM client lands here because it is infrastructure; commits 3 and 5 only add prompts.
 
 ### Commit 2: Search
-**Branch:** `m2-search` · **Tasks:** T1.1, T1.2, T1.3, T1.4, T1.5, T1.6
+**Branch:** `m1-search` · **Tasks:** T1.1, T1.2, T1.3, T1.4, T1.5, T1.6
 ```
 Includes: SearchProvider interface, resilience (timeout, retry, breaker, shared token
 bucket), flights adapter with flex dates, hotels + activities adapters, search cache,
@@ -663,7 +663,7 @@ Done when:
 **Start with:** confirming hotel and activity provider access (first step of T1.3/T1.4). If access fails, re-plan here.
 
 ### Commit 3: Planning core
-**Branch:** `m3-core` · **Tasks:** T2.1, T2.2, T2.3, T2.4, T2.5, T3.4
+**Branch:** `m2-core` · **Tasks:** T2.1, T2.2, T2.3, T2.4, T2.5, T3.4
 ```
 Includes: constraint builder, joint optimizer, budget advice, explain call + grounding
 validator, orchestrator with Redis event stream + SSE resume + restart recovery,
@@ -676,7 +676,7 @@ Done when:
 Select is included so the backend flow is complete end to end before any UI exists.
 
 ### Commit 4: Extension + chip refinement
-**Branch:** `m4-extension` · **Tasks:** T4.1, T4.2, T4.3, T4.5, T3.1, T3.3, T4.4 (chips only)
+**Branch:** `m3-extension` · **Tasks:** T4.1, T4.2, T4.3, T4.5, T3.1, T3.3, T4.4 (chips only)
 ```
 Includes: service worker SSE client, TripForm with prefetch, PackagesView, MyTrips,
 chip deltas + applyDelta, branch rerun + /refine, RefineBar (chips only)
@@ -689,7 +689,7 @@ Chips need no LLM, so the whole refine loop is tested without model variability.
 **Rebalancing option:** commit 4 is the largest. Moving T3.1, T3.3 and the chip half of T4.4 to commit 5 evens the sizes, at the cost of a first product that can't refine.
 
 ### Commit 5: LLM refinement + launch readiness
-**Branch:** `m5-launch` · **Tasks:** T3.2, T4.4 (text box), T5.1, T5.2, T5.3, T5.4, T5.5
+**Branch:** `m4-launch` · **Tasks:** T3.2, T4.4 (text box), T5.1, T5.2, T5.3, T5.4, T5.5
 ```
 Includes: free-text delta parser + RefineBar text box, eval suite in CI, dashboards +
 alerts + redaction checks, integration + k6 load tests, Docker + deployment (≥ 2
