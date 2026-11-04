@@ -2,11 +2,16 @@ import { randomUUID } from "node:crypto";
 import {
   cityById,
   parseVacationConfig,
+  MAX_REFINEMENTS,
+  RefineRequest,
   SavedItinerary,
   SelectRequest,
   toRouteSchema,
   VacationConfigShape,
+  type ConstraintDelta,
   type CreateSessionResponse,
+  type HotelOption,
+  type RefineRequest as RefineBody,
   type Option,
   type SessionRecord,
 } from "@travellite/schema";
@@ -14,8 +19,11 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { isAllowedExtensionOrigin } from "../auth/origin.js";
 import { buildConstraints } from "../core/constraints.js";
+import { applyDelta, chipDelta, type ChipContext } from "../core/deltas.js";
+import { hotelPasses, hotelTotal } from "../core/optimizer.js";
 import type { Deps } from "../deps.js";
 import { HttpError } from "../errors.js";
+import { parseDelta } from "../llm/parse-delta.js";
 import { isAllowedBookingUrl } from "../providers/normalize.js";
 import type { StoredEvent } from "../store/events.js";
 import { keys } from "../store/keys.js";
@@ -33,6 +41,87 @@ function sessionId(request: FastifyRequest): string {
 
 function sseFrame({ id, event }: StoredEvent): string {
   return `id: ${id}\nevent: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`;
+}
+
+/**
+ * Hotel prices the chips compare against: the cheapest shown (or, with no packages, in the
+ * results), and every result that passes the other hotel constraints.
+ */
+async function hotelPrices(deps: Deps, session: SessionRecord): Promise<ChipContext> {
+  const perNight = (h: HotelOption) => hotelTotal(h) / h.attrs.nights;
+  const ids = session.results.hotel?.option_ids ?? [];
+  const hotels = [...(await deps.cache.getOptions(ids)).values()].filter(
+    (o): o is HotelOption => o.category === "hotel",
+  );
+  const uncapped = { ...session.constraints, hotel: { ...session.constraints.hotel } };
+  delete uncapped.hotel.max_price_per_night_usd;
+  const eligiblePerNight = hotels.filter((h) => hotelPasses(h, uncapped)).map(perNight);
+  const shown = session.packages.map((p) => perNight(p.hotel));
+  const pool = shown.length ? shown : hotels.map(perNight);
+  return {
+    ...(pool.length ? { hotelPerNight: Math.min(...pool) } : {}),
+    ...(hotels.length ? { eligiblePerNight } : {}),
+  };
+}
+
+/** Turns a chip or text into a delta, applies it, and starts the rerun when anything changed. */
+async function refineSession(
+  deps: Deps,
+  id: string,
+  installId: string,
+  body: RefineBody,
+): Promise<{ delta: ConstraintDelta; changed: boolean }> {
+  const session = await deps.sessions.getOwned(id, installId);
+  if (!session) throw notFound();
+  if (session.status !== "awaiting_selection") {
+    throw new HttpError(400, "INVALID_INPUT", "Still working on your last change", true);
+  }
+  if (session.delta_history.length >= MAX_REFINEMENTS) {
+    throw new HttpError(
+      400,
+      "INVALID_INPUT",
+      `You can refine a trip up to ${MAX_REFINEMENTS} times`,
+    );
+  }
+
+  const prices = await hotelPrices(deps, session);
+  const hotelPerNight = prices.hotelPerNight;
+  let delta: ConstraintDelta | null;
+  if ("chip" in body) {
+    delta = chipDelta(body.chip, session.constraints, prices);
+    if (!delta) {
+      const message =
+        body.chip === "cheaper_hotel"
+          ? "No cheaper hotels for these dates"
+          : "That option isn't available for this trip";
+      throw new HttpError(400, "INVALID_INPUT", message);
+    }
+  } else {
+    const parsed = await parseDelta(deps.llm, body.text, session.constraints, {
+      today: new Date().toISOString().slice(0, 10),
+      ...(hotelPerNight === undefined ? {} : { hotel_per_night: Math.round(hotelPerNight) }),
+    });
+    if (!parsed.ok) throw new HttpError(400, "INVALID_INPUT", "Couldn't apply that, try a chip");
+    delta = parsed.delta;
+  }
+
+  const applied = applyDelta(session.constraints, delta);
+  if (!applied.ok) throw new HttpError(400, "INVALID_INPUT", applied.error);
+  if (applied.changed) {
+    await deps.sessions.put({
+      ...session,
+      constraints: applied.constraints,
+      delta_history: [...session.delta_history, delta],
+      status: "refining",
+    });
+  }
+  // The client shows the reason either way; an unchanged delta keeps the current packages.
+  await deps.events.append(id, {
+    event: "refine_applied",
+    data: { delta, changed: applied.changed },
+  });
+  if (applied.changed) deps.runner.start(id);
+  return { delta, changed: applied.changed };
 }
 
 export async function sessionRoutes(app: FastifyInstance, deps: Deps) {
@@ -84,7 +173,7 @@ export async function sessionRoutes(app: FastifyInstance, deps: Deps) {
     const session = await deps.sessions.getOwned(id, request.installId);
     if (!session) throw notFound();
     // If the instance running this session stopped, the reconnecting client restarts it.
-    if (session.status === "searching") deps.runner.start(id);
+    if (session.status === "searching" || session.status === "refining") deps.runner.start(id);
 
     const header = request.headers["last-event-id"];
     const query = (request.query as Record<string, unknown>)?.last_event_id;
@@ -141,6 +230,27 @@ export async function sessionRoutes(app: FastifyInstance, deps: Deps) {
       res.end();
     }
   });
+
+  app.post(
+    "/v1/sessions/:id/refine",
+    { config: { rateGroup: "refine" }, schema: { body: toRouteSchema(RefineRequest) } },
+    async (request, reply) => {
+      const sid = sessionId(request);
+      const body = RefineRequest.parse(request.body);
+      const lockKey = keys.refineLock(sid);
+      // One refinement at a time per session, even across instances.
+      if (!(await deps.redis.set(lockKey, "1", "PX", 15_000, "NX"))) {
+        throw new HttpError(400, "INVALID_INPUT", "Still working on your last change", true);
+      }
+      try {
+        const result = await refineSession(deps, sid, request.installId, body);
+        reply.code(202);
+        return result;
+      } finally {
+        await deps.redis.del(lockKey);
+      }
+    },
+  );
 
   app.post(
     "/v1/sessions/:id/select",

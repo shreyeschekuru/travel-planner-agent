@@ -1,0 +1,24 @@
+{
+  "description": "Free-text refinement phrases and the constraint changes they should produce. Graded on the resulting constraints, not the exact ops. Dates are in days relative to the trip (depart_in_days from today). Context: 2 travelers, $4,000 budget, max 1 stop, min rating 3.5, interests [food], 2 activities a day, cheapest hotel shown $150/night.",
+  "trip": { "depart_in_days": 60, "nights": 5, "budget_usd": 4000, "travelers": 2, "preferences": ["food"] },
+  "context": { "hotel_per_night": 150 },
+  "cases": [
+    { "text": "Find me a cheaper hotel", "expect": { "hotel.max_price_per_night_usd": 120 } },
+    { "text": "Only direct flights please", "expect": { "flight.max_stops": 0 } },
+    { "text": "Hotels under $100 a night", "expect": { "hotel.max_price_per_night_usd": 100 } },
+    { "text": "Push the whole trip back two days", "expect": { "dates.depart": { "days": 2 }, "dates.return": { "days": 2 } } },
+    { "text": "Move everything a day earlier", "expect": { "dates.depart": { "days": -1 }, "dates.return": { "days": -1 } } },
+    { "text": "Make the trip 2 days longer", "expect": { "dates.return": { "days": 2 } } },
+    { "text": "Raise my budget to $5,000", "expect": { "budget.total_usd": 5000 } },
+    { "text": "I want a nicer hotel", "expect": { "hotel.min_rating": 4 } },
+    { "text": "Add some museums", "expect": { "activities.interests": ["food", "museums"] } },
+    { "text": "No more food stuff, we're more into nightlife", "expect": { "activities.interests": ["nightlife"] } },
+    { "text": "Just one activity a day", "expect": { "activities.max_per_day": 1 } },
+    { "text": "Hotel within 2 km of the center", "expect": { "hotel.max_km_from_center": 2 } },
+    { "text": "Don't land after 10pm", "expect": { "flight.latest_arrive": "22:00" } },
+    { "text": "No flights leaving before 8 in the morning", "expect": { "flight.earliest_depart": "08:00" } },
+    { "text": "Keep flights under $1,200 total", "expect": { "flight.max_price_usd": 1200 } },
+    { "text": "What's the weather like in March?", "expect": null },
+    { "text": "Book the Ritz for us", "expect": null }
+  ]
+}

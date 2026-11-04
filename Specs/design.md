@@ -62,12 +62,12 @@ travellite/
 │  └─ schema/          # Zod schemas + TS types shared by api and extension
 ├─ apps/
 │  ├─ api/
-│  │  ├─ src/routes/        prefetch.ts · sessions.ts (create, events, select) · refine.ts (M3)
-│  │  ├─ src/orchestrator/  run-session.ts · rerun-branch.ts
+│  │  ├─ src/routes/        prefetch.ts · sessions.ts (create, events, refine, select)
+│  │  ├─ src/orchestrator/  run-session.ts (first run and refinement reruns)
 │  │  ├─ src/core/          constraints.ts · optimizer.ts · deltas.ts · budget-advice.ts
 │  │  ├─ src/llm/           client.ts · pricing.ts · untrusted.ts · json-items.ts
 │  │  │                     explain.ts · explain-input.ts · fallback.ts · grounding.ts
-│  │  │                     parse-delta.ts (M3)
+│  │  │                     parse-delta.ts
 │  │  ├─ src/providers/     provider.ts · http.ts · resilience.ts · breaker.ts · token-bucket.ts
 │  │  │                     duffel-flights.ts · duffel-stays.ts · viator.ts · fx.ts
 │  │  │                     normalize.ts · fixtures.ts · index.ts
@@ -302,9 +302,17 @@ total_usd      = flight_total + hotel_total + activity_total
 - Fallback: bullets generated from `score_breakdown` ("Cheapest total: $2,410", "1 stop, 9h40m").
 
 ### 5.7 Refinement 🟢
-- Chips → fixed deltas in `deltas.ts` (e.g. `cheaper_hotel` → `scale hotel.max_price_per_night_usd 0.8`, using the current package's hotel price if unset).
-- Free text → `parse-delta.ts`: one LLM call, output `ConstraintDelta` with `path` limited to `DeltaPath`.
-- `applyDelta(constraints, delta)` is a pure function with bounds checks (e.g. budget > 0, dates still valid).
+- Chips → fixed deltas in `deltas.ts`:
+  | Chip | Delta |
+  |---|---|
+  | `cheaper_hotel` | `scale hotel.max_price_per_night_usd 0.8`; if unset, `set` it to 80% of the cheapest hotel shown (or in the results) |
+  | `better_hotel` | `hotel.min_rating` + 0.5 (max 5), and remove any hotel price cap |
+  | `fewer_stops` | `flight.max_stops` − 1 (min 0) |
+  | `shift_dates_earlier` / `_later` | both dates ∓/± 1 day |
+  | `more_activities` | `activities.max_per_day` + 1 (max 6) |
+- Free text → `parse-delta.ts`: one LLM call (structured output, text wrapped as data), output `ConstraintDelta` with `path` limited to `DeltaPath`. Not understood → `400 "Couldn't apply that, try a chip"`. Eval set: `evals/parse-delta.json`.
+- `applyDelta(constraints, delta)` is a pure function with bounds checks: dates valid, not past, within 365 days; budget $100–$100,000; field ranges from the schema; `scale` only on set values, factor 0–10. It reports `changed: false` when nothing differs.
+- `POST …/refine` returns `202 {delta, changed}` and always emits `refine_applied`. When nothing changed, current packages stay and no rerun starts. One refinement at a time per session (Redis lock; also requires status `awaiting_selection`); at most 10 changed deltas per session.
 
 **Branch invalidation:**
 | Delta path prefix | Re-search | Re-optimize + re-explain |
@@ -314,6 +322,8 @@ total_usd      = flight_total + hotel_total + activity_total
 | `flight.` | flights (cache first) | yes |
 | `activities.` | activities (cache first) | yes |
 | `dates.` | all | yes |
+
+Only date changes alter search keys, so "re-search" for the other prefixes re-reads the same cache entries (a provider call only if the entry expired). Categories a delta doesn't touch reuse the session's stored results from the option store, so a hotel chip makes zero flight or activity calls. Packages identical to the previous round keep their explanations without an LLM call. A refinement runs as a new round in the event stream (from its `refine_applied` event), so restart recovery works for refinements the same way as for the first run.
 
 ### 5.8 Session store & events 🟢
 - `session:{id}` → `SessionRecord` JSON, TTL 24 h.
