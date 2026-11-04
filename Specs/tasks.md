@@ -42,11 +42,11 @@ M3  Refinement & selection
 ├─ T3.3 [x] Branch rerun                          M
 └─ T3.4 [x] Select endpoint + session deletion    S
 M4  Extension UI
-├─ T4.1 [  ] Service worker: SSE + API client      M
-├─ T4.2 [  ] TripForm + prefetch                   M
-├─ T4.3 [  ] PackagesView                          L
-├─ T4.4 [  ] RefineBar                             M
-└─ T4.5 [  ] MyTrips + saved itineraries           M
+├─ T4.1 [~] Service worker: SSE + API client      M
+├─ T4.2 [~] TripForm + prefetch                   M
+├─ T4.3 [x] PackagesView                          L
+├─ T4.4 [x] RefineBar                             M
+└─ T4.5 [x] MyTrips + saved itineraries           M
 M5  Quality & launch
 ├─ T5.1 [  ] Tracing + metrics dashboard           M
 ├─ T5.2 [  ] Eval suite in CI                      L
@@ -54,9 +54,9 @@ M5  Quality & launch
 ├─ T5.4 [  ] Deployment                            M
 ├─ T5.5 [  ] Privacy policy + store listing        S
 └─ T5.6 [  ] Beta: 50 sessions                     L
-MVP STATUS: 16/32 done · 5 partial
-[~] = built and tested offline; needs a live run (provider keys + a recording, or the
-      live LLM eval for T3.2)
+MVP STATUS: 19/32 done · 7 partial
+[~] = built and tested offline; needs a live run (provider keys + a recording, the
+      live LLM eval for T3.2, or a pass in real Chrome for T4.1–T4.2)
 
 ══════════ MVP → FULL GATE ══════════
 
@@ -331,8 +331,11 @@ FULL STATUS: 0/19
 ```
 ✓ API client adds the token; typed with packages/schema
 ✓ SSE connection with Last-Event-ID resume and backoff (1, 2, 4, 8 s)
-✓ Events written to chrome.storage.session; popup notified via runtime messages
-✓ Manual test: close popup mid-session, reopen → state intact; drop network → resumes
+✓ Events reduced into a TripState in chrome.storage.session; the popup follows it
+  through storage.onChanged (instead of runtime messages)
+✓ Stream open only while the server is working; a restarted worker resumes from the
+  stored Last-Event-ID (automated, incl. an e2e test against the real API)
+☐ Manual test in Chrome: close popup mid-session, reopen → state intact; drop network → resumes
 ```
 
 ### T4.2: TripForm + prefetch 🟢
@@ -341,7 +344,9 @@ FULL STATUS: 0/19
 ✓ Fields and validation per requirements F1
 ✓ Draft persisted on change and restored
 ✓ Debounced prefetch (800 ms) once origin/destination/dates are valid
-✓ Keyboard accessible; WCAG AA contrast
+✓ Labels, aria-invalid/aria-describedby errors, pressed-state interest toggles;
+  palette checked for WCAG AA (lowest pair 5.2:1)
+☐ Keyboard and screen-reader pass in Chrome
 ```
 
 ### T4.3: PackagesView 🟢

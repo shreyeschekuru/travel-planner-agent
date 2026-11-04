@@ -24,6 +24,11 @@ npm run dev                     # API on http://localhost:3000
 npm run build -w @travellite/extension   # then load apps/extension/dist as an unpacked extension
 ```
 
+To try the whole flow: run the API (fixture mode needs no provider keys), build the
+extension, then in Chrome open `chrome://extensions`, turn on Developer mode, choose
+"Load unpacked" and pick `apps/extension/dist`. Without `ANTHROPIC_API_KEY`, package
+summaries fall back to code-written bullets and free-text refinements are refused.
+
 The extension calls `http://localhost:3000` by default. Production builds require an https
 `VITE_API_BASE`, e.g. `VITE_API_BASE=https://api.travellite.dev npm run build -w @travellite/extension`.
 
@@ -47,6 +52,12 @@ npm run ci        # lint, format check, typecheck, tests, build (needs Redis)
 ```
 
 API tests use Redis DB 15 and flush it before each test, so they don't touch development data.
+The extension's end-to-end test drives the service worker's code against a running API:
+
+```bash
+E2E_API_BASE=http://localhost:3000 npm test -w @travellite/extension
+```
+
 Live LLM tests are off by default because they call the API and cost money:
 
 ```bash

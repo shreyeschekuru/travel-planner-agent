@@ -11,3 +11,4 @@ export * from "./itinerary.js";
 export * from "./events.js";
 export * from "./api.js";
 export * from "./json-schema.js";
+export * from "./links.js";

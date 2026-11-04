@@ -1,17 +1,7 @@
-import { Option, type LatLng } from "@travellite/schema";
+import { isAllowedBookingUrl, Option, type LatLng } from "@travellite/schema";
 import type { z } from "zod";
 
-/** Booking links must be https and on one of these hosts. */
-export const BOOKING_HOSTS = new Set(["www.google.com", "www.viator.com"]);
-
-export function isAllowedBookingUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    return u.protocol === "https:" && BOOKING_HOSTS.has(u.hostname);
-  } catch {
-    return false;
-  }
-}
+export { BOOKING_HOSTS, isAllowedBookingUrl } from "@travellite/schema";
 
 export interface Normalized {
   options: Option[];
