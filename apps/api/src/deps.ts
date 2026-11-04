@@ -32,6 +32,7 @@ export interface DepsOptions {
   providers?: ProviderOverrides;
   sseHeartbeatMs?: number;
   log?: (err: unknown, msg: string) => void;
+  warn?: (data: Record<string, unknown>, msg: string) => void;
 }
 
 export function createDeps(
@@ -69,6 +70,7 @@ export function createDeps(
       llm,
       cache,
       ...(opts.log ? { log: opts.log } : {}),
+      ...(opts.warn ? { warn: opts.warn } : {}),
     }),
     sseHeartbeatMs: opts.sseHeartbeatMs ?? 15_000,
   };

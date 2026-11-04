@@ -14,6 +14,14 @@ import {
 } from "@travellite/schema";
 import { traceable } from "langsmith/traceable";
 import { budgetAdvice } from "../core/budget-advice.js";
+import {
+  noFlights,
+  noHotels,
+  noMatchingDates,
+  providerFailure,
+  type Diagnosis,
+  type TripContext,
+} from "../core/diagnose.js";
 import { invalidated } from "../core/deltas.js";
 import { optimize } from "../core/optimizer.js";
 import type { LlmClient } from "../llm/client.js";
@@ -39,6 +47,8 @@ export interface RunnerDeps {
   cache: Cache;
   now?: () => Date;
   log?: (err: unknown, msg: string) => void;
+  /** Recoverable problems worth a look, such as a provider refusing a search. */
+  warn?: (data: Record<string, unknown>, msg: string) => void;
 }
 
 /** Identity of an event for de-duplication when a run is repeated after a restart. */
@@ -51,19 +61,6 @@ function eventKey(e: SessionEvent): string {
       return `explanation:${e.data.package_id}`;
     default:
       return e.event;
-  }
-}
-
-function errorCode(e: ProviderError): ErrorCode {
-  switch (e.kind) {
-    case "TIMEOUT":
-      return "PROVIDER_TIMEOUT";
-    case "RATE_LIMIT":
-      return "PROVIDER_RATE_LIMIT";
-    case "BAD_PAYLOAD":
-      return "PROVIDER_BAD_PAYLOAD";
-    default:
-      return "NETWORK_ERROR";
   }
 }
 
@@ -92,10 +89,12 @@ export class SessionRunner {
   private readonly running = new Map<string, Promise<void>>();
   private readonly now: () => Date;
   private readonly log: (err: unknown, msg: string) => void;
+  private readonly warn: (data: Record<string, unknown>, msg: string) => void;
 
   constructor(private readonly deps: RunnerDeps) {
     this.now = deps.now ?? (() => new Date());
     this.log = deps.log ?? ((err, msg) => console.error(msg, err));
+    this.warn = deps.warn ?? ((data, msg) => console.warn(msg, data));
   }
 
   /** Starts a run in the background unless this instance already has one for the session. */
@@ -226,23 +225,30 @@ export class SessionRunner {
         ),
       });
 
+      const city = cityById(session.config.destination)!;
+      const trip: TripContext = {
+        origin: session.config.origin,
+        cityName: city.name,
+        depart: req.depart,
+        return: req.return,
+        flexDays: req.flex_days,
+        travelers: req.travelers,
+      };
+      // Provider details go to the logs; clients get a message naming the cause.
+      for (const [category, res] of categories) {
+        if (!res.ok)
+          this.warn({ session: session.id, category, ...res.error }, "provider search failed");
+      }
+      // A package needs both a flight and a hotel.
       if (!r.flights.ok || !r.hotels.ok) {
-        const failed = !r.flights.ok
-          ? r.flights.error
-          : (r.hotels as { error: ProviderError }).error;
-        const what = !r.flights.ok ? "flights" : "hotels";
-        await this.fail(
-          session.id,
-          errorCode(failed),
-          `Couldn't load ${what} right now. Try again.`,
-          true,
-          emit,
-        );
+        const [category, error] = !r.flights.ok
+          ? (["flight", r.flights.error] as const)
+          : (["hotel", (r.hotels as { error: ProviderError }).error] as const);
+        await this.diagnosed(providerFailure(category, error.kind, trip), emit, save);
         return;
       }
 
       // Step 3: optimize.
-      const city = cityById(session.config.destination)!;
       const input = {
         flights: r.flights.options,
         hotels: r.hotels.options,
@@ -250,18 +256,14 @@ export class SessionRunner {
         cityCenter: city.center,
       };
       const result = optimize(input, session.constraints);
-      if (result.kind === "no_options") {
-        const what = result.category === "flight" ? "flights" : "hotels";
-        await emit({
-          event: "error",
-          data: {
-            code: "NOT_FOUND",
-            message: `No ${what} match these settings. Try a different change.`,
-            retryable: false,
-          },
-        });
-        // Packages from an earlier round no longer match the constraints.
-        await save({ status: "awaiting_selection", packages: [], explanations: [] });
+      if (result.kind === "no_options" || result.kind === "no_matching_dates") {
+        const diagnosis =
+          result.kind === "no_matching_dates"
+            ? noMatchingDates(trip)
+            : result.category === "flight"
+              ? noFlights(input.flights, session.constraints, trip)
+              : noHotels(input.hotels, session.constraints, trip);
+        await this.diagnosed(diagnosis, emit, save);
         return;
       }
       if (result.kind === "over_budget") {
@@ -328,6 +330,33 @@ export class SessionRunner {
       activities: await load<ActivityOption>("activity"),
     };
     return this.deps.search.refresh(req, prior, redo);
+  }
+
+  /**
+   * Reports why no packages could be built. When a refinement can fix it, the session stays
+   * open for one; otherwise it's marked failed.
+   */
+  private async diagnosed(
+    d: Diagnosis,
+    emit: (e: SessionEvent) => Promise<void>,
+    save: (patch: Partial<SessionRecord>) => Promise<void>,
+  ): Promise<void> {
+    await emit({
+      event: "error",
+      data: {
+        code: d.code,
+        message: d.message,
+        retryable: d.retryable,
+        refinable: d.refinable,
+        category: d.category,
+      },
+    });
+    // Packages from an earlier round no longer match the constraints.
+    await save({
+      status: d.refinable ? "awaiting_selection" : "failed",
+      packages: [],
+      explanations: [],
+    });
   }
 
   private async fail(

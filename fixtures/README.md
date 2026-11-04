@@ -55,5 +55,11 @@ DUFFEL_ACCESS_TOKEN=duffel_test_… VIATOR_API_KEY=… \
   npm run fixtures:record -w @travellite/api -- JFK 2027-02-10 2027-02-17 2
 ```
 
-This records flights, hotels and activities for every catalog city and overwrites synthetic files
-with the same key. Check the diff before committing: affiliate IDs appear in Viator product URLs.
+This records flights, hotels and activities for every catalog city into `fixtures/recorded/`.
+Fixture mode replays a recording when one matches and falls back to the synthetic files here;
+tests only use the synthetic files, so recording never changes test results.
+
+- Only successful responses are recorded. Errors (a rejected key, a feature not enabled for the
+  account) are listed at the end of the run and leave existing fixtures alone.
+- `fixtures/recorded/` is gitignored: real responses are large (Duffel returns hundreds of
+  offers per search) and Viator product URLs carry your affiliate ID.

@@ -5,6 +5,8 @@ export const ErrorCode = z.enum([
   "PROVIDER_TIMEOUT",
   "PROVIDER_RATE_LIMIT",
   "PROVIDER_BAD_PAYLOAD",
+  /** The provider refused our credentials or hasn't enabled a feature for the account. */
+  "PROVIDER_ACCESS",
   "INVALID_INPUT",
   "UNAUTHORIZED",
   "NOT_FOUND",

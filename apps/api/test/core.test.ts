@@ -312,7 +312,7 @@ describe("budgetAdvice", () => {
   it("reports the cheapest total and the category driving it", () => {
     const advice = budgetAdvice(input(), low, []);
     // f2 ($900, 1 stop) + h2 ($700); the flight is the larger part.
-    expect(advice).toEqual({ cheapest_total_usd: 1600, driver: "flight" });
+    expect(advice).toMatchObject({ cheapest_total_usd: 1600, driver: "flight" });
   });
 
   it("suggests the nearest cached date pair that fits", () => {

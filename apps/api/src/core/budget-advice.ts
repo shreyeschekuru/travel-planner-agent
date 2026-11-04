@@ -1,4 +1,5 @@
 import type { BudgetAdvice, Constraints, FlightOption, HotelOption } from "@travellite/schema";
+import { activeFilters } from "./diagnose.js";
 import {
   flightPasses,
   flightTotal,
@@ -20,7 +21,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Cheapest flight + hotel on the same dates that pass the non-budget constraints. */
 function cheapestCombo(flights: FlightOption[], hotels: HotelOption[], c: Constraints) {
-  let best: { flight: number; hotel: number; total: number } | null = null;
+  let best: { flight: number; hotel: number; total: number; nights: number } | null = null;
   for (const f of flights) {
     if (!flightPasses(f, c)) continue;
     for (const h of hotels) {
@@ -29,7 +30,9 @@ function cheapestCombo(flights: FlightOption[], hotels: HotelOption[], c: Constr
       if (h.attrs.checkout !== f.attrs.return_depart_at.slice(0, 10)) continue;
       const flight = flightTotal(f, c.travelers);
       const hotel = hotelTotal(h);
-      if (!best || flight + hotel < best.total) best = { flight, hotel, total: flight + hotel };
+      if (!best || flight + hotel < best.total) {
+        best = { flight, hotel, total: flight + hotel, nights: h.attrs.nights };
+      }
     }
   }
   return best;
@@ -54,9 +57,18 @@ export function budgetAdvice(
       (a, b) => Math.abs(a.g.shift) - Math.abs(b.g.shift) || a.combo!.total - b.combo!.total,
     )[0];
 
+  const filters = activeFilters(c);
   return {
     cheapest_total_usd: round2(cheapest?.total ?? 0),
     driver: cheapest && cheapest.hotel > cheapest.flight ? "hotel" : "flight",
+    ...(cheapest
+      ? {
+          cheapest_flight_usd: round2(cheapest.flight),
+          cheapest_hotel_usd: round2(cheapest.hotel),
+          nights: cheapest.nights,
+        }
+      : {}),
+    ...(filters.length ? { filters } : {}),
     ...(fitting
       ? {
           nearest_fitting_dates: {

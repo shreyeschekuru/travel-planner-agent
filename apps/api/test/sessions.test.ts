@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createDeps, type Deps } from "../src/deps.js";
 import { findFixturesDir, fixtureTransport } from "../src/providers/fixtures.js";
+import type { HttpRequest, HttpResponse } from "../src/providers/http.js";
 import { isAllowedBookingUrl } from "../src/providers/normalize.js";
 import { keys } from "../src/store/keys.js";
 import { fakeExplainLlm } from "./fake-llm.js";
@@ -33,6 +34,10 @@ const callKind = (url: string) => {
   return "lookup";
 };
 
+/** Lets a test replace a provider's answer, e.g. a 403 from hotel search. */
+let intercept: ((req: HttpRequest) => HttpResponse | null) | null = null;
+let warnings: { data: Record<string, unknown>; msg: string }[] = [];
+
 async function start(env: Record<string, string> = {}) {
   const fake = fakeExplainLlm("grounded");
   llmCalls = () => fake.stream.mock.calls.length;
@@ -46,13 +51,14 @@ async function start(env: Record<string, string> = {}) {
     {
       providers: {
         sleep: async () => {},
-        transport: (req, signal) => {
+        transport: async (req, signal) => {
           providerCalls.push(callKind(req.url));
-          return fixtures(req, signal);
+          return intercept?.(req) ?? fixtures(req, signal);
         },
       },
       sseHeartbeatMs: 200,
       log: () => {},
+      warn: (data, msg) => void warnings.push({ data, msg }),
     },
   );
   // The test HTTP client can leave a fresh, unused socket open, which would stall close().
@@ -61,6 +67,8 @@ async function start(env: Record<string, string> = {}) {
 }
 
 afterEach(async () => {
+  intercept = null;
+  warnings = [];
   await deps?.runner.idle();
   await app?.close();
 });
@@ -618,5 +626,88 @@ describe("POST /v1/sessions/:id/refine", () => {
     const names = (await deps.events.readAfter(id)).map((e) => e.event.event);
     expect(names).toEqual(all.map((e) => e.event.event));
     expect((await deps.sessions.get(id))!.status).toBe("awaiting_selection");
+  });
+});
+
+describe("error messages name the cause", () => {
+  it("reports a provider that hasn't enabled hotel search, with no retry or refinement", async () => {
+    await start();
+    intercept = (req) =>
+      req.url.includes("/stays/search")
+        ? {
+            status: 403,
+            headers: {},
+            body: { errors: [{ message: "This feature is not enabled for your account." }] },
+          }
+        : null;
+    const token = await install();
+    const id = await createSession(token);
+    const { events } = await readEvents(id, token, { until: finished });
+    expect(events.at(-1)).toMatchObject({
+      event: "error",
+      data: {
+        code: "PROVIDER_ACCESS",
+        message:
+          "Hotel search isn't available: the hotel provider hasn't enabled access for this account.",
+        retryable: false,
+        refinable: false,
+        category: "hotel",
+      },
+    });
+    await deps.runner.idle();
+    expect((await deps.sessions.get(id))!.status).toBe("failed");
+    // The provider's own message goes to the logs, not the client.
+    expect(warnings).toContainEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          category: "hotel",
+          kind: "AUTH",
+          detail: "HTTP 403: This feature is not enabled for your account.",
+        }),
+      }),
+    );
+  });
+
+  it("names the constraint that ruled out every hotel, and keeps refining open", async () => {
+    await start();
+    const token = await install();
+    const id = await createSession(token);
+    await readEvents(id, token, { until: finished });
+    await deps.runner.idle();
+    const s = (await deps.sessions.get(id))!;
+    await deps.sessions.put({
+      ...s,
+      constraints: { ...s.constraints, hotel: { min_rating: 5 } },
+      status: "searching",
+    });
+    // Re-run the session under the stricter constraint.
+    await deps.events.delete(id);
+    deps.runner.start(id);
+    await deps.runner.idle();
+    const last = (await deps.events.readAfter(id)).at(-1)!.event;
+    expect(last).toMatchObject({
+      event: "error",
+      data: { code: "NOT_FOUND", refinable: true, category: "hotel" },
+    });
+    expect(last.event === "error" && last.data.message).toMatch(
+      /^No hotels rated 5\+ \(the highest rated is \d\.\d\)\.$/,
+    );
+    expect((await deps.sessions.get(id))!.status).toBe("awaiting_selection");
+  });
+
+  it("names the route and dates when a provider finds no flights", async () => {
+    await start();
+    intercept = (req) =>
+      req.url.includes("/air/offer_requests")
+        ? { status: 422, headers: {}, body: { errors: [{ message: "Invalid origin" }] } }
+        : null;
+    const token = await install();
+    const id = await createSession(token, trip({ origin: "ATL" }));
+    const { events } = await readEvents(id, token, { until: finished });
+    expect(events.at(-1)!.data).toMatchObject({
+      code: "NOT_FOUND",
+      message: expect.stringMatching(/^No flights found from ATL to Lisbon for [A-Z][a-z]{2} \d+/),
+      refinable: true,
+    });
   });
 });

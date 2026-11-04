@@ -28,7 +28,17 @@ export const SessionEvent = z.discriminatedUnion("event", [
   }),
   z.object({
     event: z.literal("error"),
-    data: z.object({ code: ErrorCode, message: z.string().max(300), retryable: z.boolean() }),
+    data: z.object({
+      code: ErrorCode,
+      /** Names the exact cause, e.g. "No hotels rated 4.5+ (the highest rated is 4.2)". */
+      message: z.string().max(300),
+      /** Sending the same request again may work (a timeout, a busy provider). */
+      retryable: z.boolean(),
+      /** A refinement can fix it (a constraint, the dates); the session stays open for one. */
+      refinable: z.boolean().optional(),
+      /** The category that caused it, when there is one. */
+      category: OptionCategory.optional(),
+    }),
   }),
 ]);
 export type SessionEvent = z.infer<typeof SessionEvent>;

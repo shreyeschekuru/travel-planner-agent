@@ -1,4 +1,10 @@
-import type { OptionCategory, PackageExplanation, TripPackage } from "@travellite/schema";
+import type {
+  BudgetAdvice,
+  OptionCategory,
+  PackageExplanation,
+  ProviderErrorKind,
+  TripPackage,
+} from "@travellite/schema";
 import { affectedParts, type TripState } from "../worker/trip-state.js";
 import {
   CATEGORY_NAMES,
@@ -11,11 +17,22 @@ import {
   stops,
 } from "./format.js";
 
-const DEGRADED_NOTE: Record<OptionCategory, string> = {
-  flight: "Flight prices couldn't be loaded.",
-  hotel: "Hotel prices couldn't be loaded.",
-  activity: "Activities couldn't be loaded, so packages don't include them.",
-};
+/**
+ * Activities are optional, so their failure is a warning; a flight or hotel failure ends the
+ * search and the server's error message explains it.
+ */
+function activitiesNote(kind: ProviderErrorKind): string {
+  switch (kind) {
+    case "NOT_FOUND":
+      return "No activities were found for this city, so packages don't include any.";
+    case "AUTH":
+      return "Activity search isn't enabled for this account, so packages don't include activities.";
+    case "RATE_LIMIT":
+      return "Too many activity searches right now, so packages don't include activities.";
+    default:
+      return "The activities provider isn't responding, so packages don't include activities.";
+  }
+}
 
 function statusLine(s: TripState): string {
   if (s.phase === "searching") {
@@ -146,6 +163,32 @@ function PackageCard({
   );
 }
 
+function BudgetAdviceText({
+  advice,
+  trip,
+}: {
+  advice: BudgetAdvice;
+  trip: { budget_usd: number; departure_date: string; return_date: string; travelers: number };
+}) {
+  const parts =
+    advice.cheapest_flight_usd !== undefined && advice.cheapest_hotel_usd !== undefined
+      ? `: flight ${money(advice.cheapest_flight_usd)} for ${trip.travelers} traveler${trip.travelers > 1 ? "s" : ""} + hotel ${money(advice.cheapest_hotel_usd)}${advice.nights ? ` for ${advice.nights} night${advice.nights > 1 ? "s" : ""}` : ""}`
+      : "";
+  return (
+    <>
+      <p>
+        <strong>Nothing fits your {money(trip.budget_usd)} budget.</strong> The cheapest flight +
+        hotel for {shortDate(trip.departure_date)} – {shortDate(trip.return_date)} is{" "}
+        {money(advice.cheapest_total_usd)}
+        {parts}.
+      </p>
+      {advice.filters && advice.filters.length > 0 && (
+        <p>That's with your filters: {advice.filters.join(", ")}.</p>
+      )}
+    </>
+  );
+}
+
 export interface PackagesViewProps {
   trip: TripState;
   onSelect: (packageId: string) => void;
@@ -184,21 +227,24 @@ export function PackagesView({ trip, onSelect, selecting, onRetry, onEdit }: Pac
         {status}
       </p>
 
-      {degraded.map(([category]) => (
-        <p key={category} className="banner warn">
-          {DEGRADED_NOTE[category]}
-        </p>
-      ))}
+      {degraded
+        .filter(([category]) => category === "activity")
+        .map(([category, r]) => (
+          <p key={category} className="banner warn">
+            {activitiesNote((r as { degraded: ProviderErrorKind }).degraded)}
+          </p>
+        ))}
 
       {trip.phase === "error" && trip.error && (
         <div className="banner error" role="alert">
           <p>{trip.error.message}</p>
           <div className="actions">
-            {(trip.error.retryable || trip.error.code === "SESSION_EXPIRED") && (
-              <button type="button" onClick={onRetry}>
-                {trip.error.code === "SESSION_EXPIRED" ? "Plan again" : "Try again"}
-              </button>
-            )}
+            {(trip.error.retryable || trip.error.code === "SESSION_EXPIRED") &&
+              !trip.error.refinable && (
+                <button type="button" onClick={onRetry}>
+                  {trip.error.code === "SESSION_EXPIRED" ? "Plan again" : "Try again"}
+                </button>
+              )}
             <button type="button" className="link" onClick={onEdit}>
               Change trip
             </button>
@@ -208,11 +254,7 @@ export function PackagesView({ trip, onSelect, selecting, onRetry, onEdit }: Pac
 
       {trip.phase === "advice" && trip.budget_advice && (
         <div className="banner advice" role="status">
-          <p>
-            <strong>Nothing fits {money(c.budget_usd)}.</strong> The cheapest trip is{" "}
-            {money(trip.budget_advice.cheapest_total_usd)}, mostly the{" "}
-            {trip.budget_advice.driver === "activities" ? "activities" : trip.budget_advice.driver}.
-          </p>
+          <BudgetAdviceText advice={trip.budget_advice} trip={{ ...c }} />
           {trip.budget_advice.nearest_fitting_dates && (
             <p>
               {shortDate(trip.budget_advice.nearest_fitting_dates.depart)} –{" "}

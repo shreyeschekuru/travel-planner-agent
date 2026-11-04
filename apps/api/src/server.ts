@@ -7,6 +7,7 @@ const config = loadConfig();
 const redis = createRedis(config.REDIS_URL);
 const deps = createDeps(config, redis, undefined, {
   log: (err, msg) => app.log.error({ err }, msg),
+  warn: (data, msg) => app.log.warn(data, msg),
 });
 const app = await buildApp(deps, {
   logger: true,

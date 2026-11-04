@@ -337,6 +337,7 @@ Only date changes alter search keys, so "re-search" for the other prefixes re-re
 - **PackagesView**: cards (totals against the current budget, flight/hotel/activities, explanation filling in as it streams), degraded banners, budget-advice and error views; during a refinement only the card parts the delta affects show as updating.
 - **RefineBar**: six chips + text box (≤ 200 chars); shows the applied delta's reason and the refinement count; disabled while working and after 10.
 - **MyTrips**: IndexedDB list and detail; links open with `chrome.tabs.create`; mark booked; delete; "Plan another trip" clears the trip and draft.
+- Errors carry `refinable`: the refine bar stays available only when a refinement can fix the cause, and "Try again" appears only for retryable errors.
 - React rendering only; URLs checked against the shared allowlist (`isAllowedBookingUrl` in `packages/schema`) before rendering as links.
 - Manifest: `permissions: ["storage"]`, `host_permissions: ["https://api.travellite.dev/*"]`.
 
@@ -375,10 +376,14 @@ Session routes return `404` unless the session's `install_id` matches the token.
 | Provider timeout / 429 / 5xx | 1 retry, then `degraded` for that category |
 | Provider breaker open | Cache if within TTL, else `degraded` |
 | Malformed provider items | Dropped, counted |
-| All categories degraded | `error` (retryable) |
-| No package fits budget | `budget_advice`, no LLM call; status `awaiting_selection` so a refinement can continue |
-| No flight or hotel passes the non-budget constraints | `error NOT_FOUND` (not retryable); status `awaiting_selection` |
-| Flights or hotels degraded | `error` with the provider's code (retryable); a package needs both |
+| Flights or hotels degraded | `error` naming the category and cause (`core/diagnose.ts`); a package needs both. Provider detail (status, provider message) is logged, never sent |
+| — provider refused access (401/403) | `PROVIDER_ACCESS`, "Hotel search isn't available: the hotel provider hasn't enabled access for this account." Not retryable or refinable; session `failed` |
+| — provider found nothing (400/404/422) | `NOT_FOUND`, "No flights found from ATL to Amsterdam for Nov 15–17." Refinable (e.g. dates); session stays open |
+| — timeout / 429 / 5xx / unreadable | Retryable, e.g. "The flight search timed out." Session `failed` |
+| No flight or hotel passes the non-budget constraints | `error NOT_FOUND` naming the constraint(s) the closest option misses and the best value available, e.g. "No hotels rated 4.5+ (the highest rated is 4.2)." Refinable; status `awaiting_selection` |
+| Flights and hotels never share dates | `error NOT_FOUND`, refinable |
+| No package fits budget | `budget_advice` with the cheapest flight + hotel, their split, nights and any non-default filters; no LLM call; status `awaiting_selection` |
+| Activities degraded | Packages without activities, plus a warning naming the cause |
 | LLM error / refusal / max_tokens | Code-generated bullets |
 | Claim fails grounding | Claim dropped |
 | Free-text delta unparseable | "Couldn't apply that, try a chip" |

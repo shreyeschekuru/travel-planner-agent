@@ -33,7 +33,9 @@ export type OptimizeResult =
   /** Flights and hotels exist that pass every constraint except the budget. */
   | { kind: "over_budget" }
   /** Nothing in this category passes the non-budget constraints. */
-  | { kind: "no_options"; category: "flight" | "hotel" };
+  | { kind: "no_options"; category: "flight" | "hotel" }
+  /** Flights and hotels pass, but never on the same dates. */
+  | { kind: "no_matching_dates" };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -230,7 +232,7 @@ export function optimize(
     }
   }
   // Flights and hotels that never share a date pair can't form a trip.
-  if (!pairedAny) return { kind: "no_options", category: "hotel" };
+  if (!pairedAny) return { kind: "no_matching_dates" };
   if (candidates.length === 0) return { kind: "over_budget" };
 
   return { kind: "packages", packages: pickPackages(candidates) };

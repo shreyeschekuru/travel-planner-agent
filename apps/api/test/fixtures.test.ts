@@ -108,3 +108,39 @@ describe("recording and replay", () => {
     expect(logs[0]).toContain("fixture recorder");
   });
 });
+
+describe("live recordings", () => {
+  it("skip error responses so they can't replace good fixtures", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fixtures-"));
+    const skipped: number[] = [];
+    const record = recordingTransport(
+      async () => ({ status: 403, headers: {}, body: { errors: [{ message: "not enabled" }] } }),
+      dir,
+      false,
+      (_req, res) => void skipped.push(res.status),
+    );
+    await record(req("2026-12-04", "2026-12-11"), AbortSignal.timeout(1000));
+    expect(skipped).toEqual([403]);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("take precedence over synthetic fixtures when replaying", async () => {
+    const recorded = mkdtempSync(join(tmpdir(), "recorded-"));
+    const synthetic = mkdtempSync(join(tmpdir(), "synthetic-"));
+    const write = (dir: string, body: unknown) =>
+      recordingTransport(
+        async () => ({ status: 200, headers: {}, body }),
+        dir,
+        dir === synthetic,
+      )(req("2026-12-04", "2026-12-11"), AbortSignal.timeout(1000));
+    await write(synthetic, { from: "synthetic" });
+    const replay = fixtureTransport([recorded, synthetic]);
+    expect((await replay(req("2026-12-04", "2026-12-11"), AbortSignal.timeout(1000))).body).toEqual(
+      { from: "synthetic" },
+    );
+    await write(recorded, { from: "recorded" });
+    expect((await replay(req("2026-12-04", "2026-12-11"), AbortSignal.timeout(1000))).body).toEqual(
+      { from: "recorded" },
+    );
+  });
+});

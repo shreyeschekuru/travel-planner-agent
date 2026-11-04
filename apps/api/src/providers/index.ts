@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { Config } from "../config.js";
 import type { Cache } from "../store/cache.js";
 import type { RedisClient } from "../store/redis.js";
@@ -5,7 +6,7 @@ import { SearchService, type SearchProviders } from "../search/search.js";
 import { CircuitBreaker } from "./breaker.js";
 import { DuffelFlights } from "./duffel-flights.js";
 import { DuffelStays } from "./duffel-stays.js";
-import { fixtureTransport, findFixturesDir } from "./fixtures.js";
+import { RECORDED_SUBDIR, findFixturesDir, fixtureTransport } from "./fixtures.js";
 import { Fx } from "./fx.js";
 import { fetchTransport, type Transport } from "./http.js";
 import { ResilientHttp } from "./resilience.js";
@@ -20,6 +21,9 @@ export const TIMEOUTS_MS = { flights: 7000, flightsSupplier: 5000, hotels: 4000,
 
 /** Fixture-mode stand-ins for secrets; they never leave the process. */
 const FIXTURE_SECRET = "fixture";
+
+/** Fixture mode replays live recordings first, then the synthetic set. */
+const fixturesFor = (dir: string) => fixtureTransport([join(dir, RECORDED_SUBDIR), dir]);
 
 export interface ProviderOverrides {
   transport?: Transport;
@@ -37,7 +41,7 @@ export function createProviders(
     overrides.transport ??
     (config.PROVIDER_MODE === "live"
       ? fetchTransport
-      : fixtureTransport(config.FIXTURES_DIR ?? findFixturesDir()));
+      : fixturesFor(config.FIXTURES_DIR ?? findFixturesDir()));
   const duffelToken = config.DUFFEL_ACCESS_TOKEN ?? FIXTURE_SECRET;
   const viatorKey = config.VIATOR_API_KEY ?? FIXTURE_SECRET;
   const sleep = overrides.sleep ? { sleep: overrides.sleep } : {};

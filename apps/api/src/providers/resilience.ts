@@ -23,6 +23,19 @@ type Attempt =
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** The provider's own error text, for logs (Duffel: errors[].message; Viator: message). */
+export function providerMessage(body: unknown): string {
+  const b = body as { errors?: { message?: string; title?: string }[]; message?: string } | null;
+  const text =
+    b?.errors
+      ?.map((e) => e.message ?? e.title)
+      .filter(Boolean)
+      .join("; ") ||
+    b?.message ||
+    (typeof body === "string" ? body : JSON.stringify(body));
+  return String(text ?? "").slice(0, 300);
+}
+
 /** Parses retry-after (seconds or an HTTP date) into ms. */
 export function retryAfterMs(header: string | undefined, now = Date.now()): number | undefined {
   if (!header) return undefined;
@@ -90,9 +103,10 @@ export class ResilientHttp {
         continue;
       }
       breaker.onSuccess();
-      if (res.status === 401 || res.status === 403) return fail("AUTH");
+      const detail = `HTTP ${res.status}: ${providerMessage(res.body)}`;
+      if (res.status === 401 || res.status === 403) return fail("AUTH", { detail });
       // 400/422 from these providers mean the place or dates were rejected.
-      if (res.status >= 400) return fail("NOT_FOUND", { detail: `HTTP ${res.status}` });
+      if (res.status >= 400) return fail("NOT_FOUND", { detail });
       return ok(res);
     }
     breaker.onFailure();

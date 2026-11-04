@@ -11,6 +11,9 @@ import {
   type VacationConfig,
 } from "@travellite/schema";
 
+/** An error event's data, or an API failure the worker recorded (e.g. an expired session). */
+export type TripError = ApiError & { refinable?: boolean; category?: OptionCategory };
+
 /**
  * - searching: first run, before packages.
  * - explaining: packages shown, explanations streaming.
@@ -33,7 +36,7 @@ export interface TripState {
   packages: TripPackage[];
   explanations: Record<string, PackageExplanation>;
   budget_advice: BudgetAdvice | null;
-  error: ApiError | null;
+  error: TripError | null;
   refinements: {
     count: number;
     last: { reason: string; changed: boolean } | null;
@@ -68,8 +71,11 @@ export function initialTrip(session_id: string, config: VacationConfig): TripSta
 export const isWorking = (phase: TripPhase) =>
   phase === "searching" || phase === "explaining" || phase === "refining";
 
+/** Refining helps unless the trip failed for a reason no constraint change can fix. */
 export const canRefine = (s: TripState) =>
-  !isWorking(s.phase) && s.refinements.count < MAX_REFINEMENTS;
+  !isWorking(s.phase) &&
+  s.refinements.count < MAX_REFINEMENTS &&
+  (s.phase !== "error" || s.error?.refinable === true);
 
 /** Applies one session event. Pure. */
 export function reduceTrip(s: TripState, e: SessionEvent): TripState {

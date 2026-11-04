@@ -29,8 +29,14 @@ export const TripPackage = z.object({
 export type TripPackage = z.infer<typeof TripPackage>;
 
 export const BudgetAdvice = z.object({
+  /** Cheapest flight + hotel on the same dates that pass every other constraint. */
   cheapest_total_usd: z.number().nonnegative(),
   driver: z.enum(["flight", "hotel", "activities"]),
+  cheapest_flight_usd: z.number().nonnegative().optional(),
+  cheapest_hotel_usd: z.number().nonnegative().optional(),
+  nights: z.number().int().positive().optional(),
+  /** Non-default constraints that shaped the cheapest total, e.g. "hotels rated 4.5+". */
+  filters: z.array(z.string().max(80)).max(10).optional(),
   nearest_fitting_dates: z
     .object({ depart: ISODate, return: ISODate, total_usd: z.number().nonnegative() })
     .optional(),

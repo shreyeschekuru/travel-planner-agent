@@ -7,3 +7,6 @@ coverage/
 !.env.example
 *.log
 .vite/
+
+# Live provider recordings (large; regenerate with npm run fixtures:record -w @travellite/api)
+fixtures/recorded/

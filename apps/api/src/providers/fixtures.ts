@@ -112,13 +112,17 @@ function saltIds(body: unknown, salt: string): unknown {
 
 /** Serves recorded responses. A missing fixture is a 404, logged with what to record. */
 export function fixtureTransport(
-  dir: string,
+  dirs: string | string[],
   log: (msg: string) => void = console.warn,
 ): Transport {
+  const search = Array.isArray(dirs) ? dirs : [dirs];
   return async (req) => {
-    const path = fixturePath(dir, req);
-    if (!existsSync(path)) {
-      log(`No fixture for ${req.method} ${req.url} (${path}); run the fixture recorder.`);
+    // The first directory with a match wins, so recordings shadow synthetic fixtures.
+    const path = search.map((d) => fixturePath(d, req)).find(existsSync);
+    if (!path) {
+      log(
+        `No fixture for ${req.method} ${req.url} (${search.join(", ")}); run the fixture recorder.`,
+      );
       return { status: 404, headers: {}, body: { errors: [{ title: "fixture not found" }] } };
     }
     const fixture = JSON.parse(readFileSync(path, "utf8")) as Fixture;
@@ -128,10 +132,23 @@ export function fixtureTransport(
   };
 }
 
-/** Wraps a transport and writes every exchange to `dir`. Request headers are never stored. */
-export function recordingTransport(inner: Transport, dir: string, synthetic = false): Transport {
+/**
+ * Wraps a transport and writes exchanges to `dir`. Request headers are never stored.
+ * Live recordings keep only successful responses, so a rejected key or a disabled feature
+ * can't overwrite good fixtures; synthetic ones also keep errors, which tests rely on.
+ */
+export function recordingTransport(
+  inner: Transport,
+  dir: string,
+  synthetic = false,
+  onSkip: (req: HttpRequest, res: HttpResponse) => void = () => {},
+): Transport {
   return async (req, signal) => {
     const res = await inner(req, signal);
+    if (!synthetic && (res.status < 200 || res.status >= 300)) {
+      onSkip(req, res);
+      return res;
+    }
     const path = fixturePath(dir, req);
     mkdirSync(dirname(path), { recursive: true });
     const fixture: Fixture = {
@@ -145,6 +162,9 @@ export function recordingTransport(inner: Transport, dir: string, synthetic = fa
     return res;
   };
 }
+
+/** Live recordings live here, apart from the synthetic set that tests depend on. */
+export const RECORDED_SUBDIR = "recorded";
 
 /** Finds the repo's fixtures/ directory by walking up from `from`. */
 export function findFixturesDir(from = process.cwd()): string {

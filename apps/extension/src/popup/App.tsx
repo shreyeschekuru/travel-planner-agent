@@ -135,7 +135,10 @@ export function App({ db: injectedDb }: AppProps = {}) {
             onRetry={() => void start({ ...trip.config, ...trip.current })}
             onEdit={() => void editTrip()}
           />
-          <RefineBar trip={trip} onRefine={refine} />
+          {/* After a failure no refinement can fix, chips would only be rejected. */}
+          {!(trip.phase === "error" && !trip.error?.refinable) && (
+            <RefineBar trip={trip} onRefine={refine} />
+          )}
         </>
       ) : (
         <TripForm

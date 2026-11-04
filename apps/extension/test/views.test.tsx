@@ -66,17 +66,23 @@ describe("PackagesView", () => {
     expect(onSelect).toHaveBeenCalledWith("a");
   });
 
-  it("shows a banner for each degraded category", () => {
+  it("explains missing activities without repeating flight or hotel failures", () => {
     view(
       trip([
-        { event: "degraded", data: { category: "activity", error_kind: "UNAVAILABLE" } },
+        { event: "degraded", data: { category: "activity", error_kind: "AUTH" } },
+        { event: "degraded", data: { category: "hotel", error_kind: "AUTH" } },
         { event: "packages", data: [pkg("a")] },
       ]),
     );
-    expect(screen.getByText(/Activities couldn't be loaded/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Activity search isn't enabled for this account, so packages don't include activities.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/hotel/i, { selector: ".banner.warn" })).toBeNull();
   });
 
-  it("shows budget advice", () => {
+  it("breaks down budget advice and names the filters behind it", () => {
     view(
       trip([
         {
@@ -84,14 +90,21 @@ describe("PackagesView", () => {
           data: {
             cheapest_total_usd: 5210,
             driver: "hotel",
+            cheapest_flight_usd: 1830,
+            cheapest_hotel_usd: 3380,
+            nights: 5,
+            filters: ["hotels rated 4.5+"],
             nearest_fitting_dates: { depart: "2027-03-12", return: "2027-03-17", total_usd: 3980 },
           },
         },
       ]),
     );
-    expect(screen.getByText(/Nothing fits \$4,000/)).toBeTruthy();
-    expect(screen.getByText(/\$5,210, mostly the hotel/)).toBeTruthy();
-    expect(screen.getByText(/Mar 12 – Mar 17 would fit at \$3,980/)).toBeTruthy();
+    const advice = document.querySelector(".banner.advice")!.textContent!.replace(/\s+/g, " ");
+    expect(advice).toContain(
+      "Nothing fits your $4,000 budget. The cheapest flight + hotel for Mar 10 – Mar 15 is $5,210: flight $1,830 for 2 travelers + hotel $3,380 for 5 nights.",
+    );
+    expect(advice).toContain("That's with your filters: hotels rated 4.5+.");
+    expect(advice).toContain("Mar 12 – Mar 17 would fit at $3,980.");
   });
 
   it("offers a retry for retryable errors", () => {
@@ -102,16 +115,38 @@ describe("PackagesView", () => {
           event: "error",
           data: {
             code: "PROVIDER_TIMEOUT",
-            message: "Couldn't load flights right now. Try again.",
+            message: "The flight search timed out.",
             retryable: true,
           },
         },
       ]),
       { onRetry },
     );
-    expect(screen.getByRole("alert").textContent).toMatch(/Couldn't load flights/);
+    expect(screen.getByRole("alert").textContent).toMatch(/The flight search timed out/);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalled();
+  });
+
+  it("shows a constraint failure without a retry button", () => {
+    view(
+      trip([
+        {
+          event: "error",
+          data: {
+            code: "NOT_FOUND",
+            message: "No hotels rated 5+ (the highest rated is 4.6).",
+            retryable: false,
+            refinable: true,
+            category: "hotel",
+          },
+        },
+      ]),
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /No hotels rated 5\+ \(the highest rated is 4\.6\)/,
+    );
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Change trip" })).toBeTruthy();
   });
 
   it("marks only the parts a refinement is updating", () => {

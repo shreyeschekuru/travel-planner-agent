@@ -80,6 +80,19 @@ describe("reduceTrip", () => {
   });
 });
 
+describe("canRefine after an error", () => {
+  const failed = (refinable: boolean) =>
+    reduceTrip(initialTrip("s1", config), {
+      event: "error",
+      data: { code: "NOT_FOUND", message: "x", retryable: false, refinable },
+    });
+
+  it("allows refining only when a refinement can fix the cause", () => {
+    expect(canRefine(failed(true))).toBe(true);
+    expect(canRefine(failed(false))).toBe(false);
+  });
+});
+
 describe("applyToSummary", () => {
   it("applies budget and date ops", () => {
     const cur = { budget_usd: 4000, departure_date: "2027-03-10", return_date: "2027-03-15" };
