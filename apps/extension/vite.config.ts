@@ -6,6 +6,9 @@ const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), 
   version: string;
 };
 
+/** PNGs in public/icons, rendered from icons/icon.svg by icons/render.sh. */
+const icons = Object.fromEntries([16, 32, 48, 128].map((size) => [size, `icons/icon-${size}.png`]));
+
 /** Generates manifest.json so host_permissions always match the configured API origin. */
 function manifest(apiBase: string): Plugin {
   const origin = new URL(apiBase).origin;
@@ -21,7 +24,12 @@ function manifest(apiBase: string): Plugin {
             name: "Travellite",
             version: pkg.version,
             description: "Plan whole trips that fit your budget.",
-            action: { default_popup: "popup.html", default_title: "Travellite" },
+            icons,
+            action: {
+              default_popup: "popup.html",
+              default_title: "Travellite",
+              default_icon: icons,
+            },
             background: { service_worker: "service-worker.js", type: "module" },
             permissions: ["storage"],
             host_permissions: [`${origin}/*`],

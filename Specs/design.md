@@ -77,9 +77,9 @@ travellite/
 │  │  ├─ src/limits/        rate-limit.ts · spend.ts · semaphore.ts
 │  │  └─ src/auth/          install-token.ts · origin.ts
 │  └─ extension/
-│     ├─ src/popup/         TripForm.tsx · PackagesView.tsx · RefineBar.tsx · MyTrips.tsx
-│     ├─ src/worker/        sse.ts · api.ts · prefetch.ts
-│     └─ src/storage/       drafts.ts · trips.ts
+│     ├─ src/popup/         App.tsx · TripForm.tsx · PackagesView.tsx · RefineBar.tsx · MyTrips.tsx
+│     └─ src/worker/        service-worker.ts · controller.ts · trip-state.ts · sse.ts · api.ts
+│                           install.ts · trips-db.ts · messages.ts
 ├─ fixtures/           # recorded provider responses
 └─ evals/              # scenarios, graders, CI runner
 ```
@@ -331,12 +331,13 @@ Only date changes alter search keys, so "re-search" for the other prefixes re-re
 - Orchestrator writes are idempotent per step; on restart a session in `searching` is re-run from cached results.
 
 ### 5.9 Extension 🟢
-- **Service worker** owns the SSE connection, reconnects with backoff (1, 2, 4, 8 s), and writes events into `chrome.storage.session`. The popup renders from storage plus `runtime` messages, so it can close and reopen freely.
-- **TripForm**: validation, draft persistence, debounced prefetch.
-- **PackagesView**: package cards (totals, flight/hotel/activities, explanation, "degraded" banners), budget-advice view.
-- **RefineBar**: chips + text box; shows the applied delta.
-- **MyTrips**: IndexedDB list; links open with `chrome.tabs.create`.
-- React rendering only; URLs checked against the allowlist before rendering.
+- **Service worker** (`TripController`) owns API calls and the SSE connection. It reduces events into a `TripState` in `chrome.storage.session` and keeps the stream open only while the server is working (searching, explaining, refining); `awaiting_selection`, `budget_advice` and `error` close it, and a refinement reopens it from the stored `Last-Event-ID`. Reconnects back off 1, 2, 4, 8 s. If Chrome stops the worker, the next start (or popup open) resumes. SSE uses `fetch`, since `EventSource` can't send the install token.
+- **Popup** renders from storage via `storage.onChanged`, so it can close and reopen freely; it sends commands (`start`, `prefetch`, `refine`, `select`, `reset`) as runtime messages.
+- **TripForm**: validation with the shared schema, draft in `chrome.storage.local`, prefetch 800 ms after origin, destination, dates and travelers are valid (identical prefetches sent once a minute).
+- **PackagesView**: cards (totals against the current budget, flight/hotel/activities, explanation filling in as it streams), degraded banners, budget-advice and error views; during a refinement only the card parts the delta affects show as updating.
+- **RefineBar**: six chips + text box (≤ 200 chars); shows the applied delta's reason and the refinement count; disabled while working and after 10.
+- **MyTrips**: IndexedDB list and detail; links open with `chrome.tabs.create`; mark booked; delete; "Plan another trip" clears the trip and draft.
+- React rendering only; URLs checked against the shared allowlist (`isAllowedBookingUrl` in `packages/schema`) before rendering as links.
 - Manifest: `permissions: ["storage"]`, `host_permissions: ["https://api.travellite.dev/*"]`.
 
 ## 6. API 🟢

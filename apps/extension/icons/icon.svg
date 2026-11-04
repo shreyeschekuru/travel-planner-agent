@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Travellite icon: a paper plane finishing a check mark">
+  <rect width="128" height="128" rx="28" fill="#12343B"/>
+  <path d="M28 66 L50 88 L88 44" fill="none" stroke="#F2A541" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(94 38) rotate(-45) scale(1.15)"><path d="M24 0 L-14 -15 L-6 0 L-14 15 Z" fill="#F7F3EA"/></g>
+</svg>

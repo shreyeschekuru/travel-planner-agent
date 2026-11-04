@@ -103,3 +103,45 @@ const byId = new Map(CITIES.map((c) => [c.id, c]));
 export function cityById(id: string): City | undefined {
   return byId.get(id);
 }
+
+export interface Airport {
+  code: string;
+  city: string;
+}
+
+/** Suggested origins for autocomplete. Any valid IATA code is accepted. */
+export const AIRPORTS: readonly Airport[] = [
+  { code: "ATL", city: "Atlanta" },
+  { code: "AUS", city: "Austin" },
+  { code: "BNA", city: "Nashville" },
+  { code: "BOS", city: "Boston" },
+  { code: "BWI", city: "Baltimore" },
+  { code: "CLT", city: "Charlotte" },
+  { code: "DCA", city: "Washington (Reagan)" },
+  { code: "DEN", city: "Denver" },
+  { code: "DFW", city: "Dallas/Fort Worth" },
+  { code: "DTW", city: "Detroit" },
+  { code: "EWR", city: "Newark" },
+  { code: "FLL", city: "Fort Lauderdale" },
+  { code: "HNL", city: "Honolulu" },
+  { code: "IAD", city: "Washington (Dulles)" },
+  { code: "IAH", city: "Houston" },
+  { code: "JFK", city: "New York (JFK)" },
+  { code: "LAS", city: "Las Vegas" },
+  { code: "LAX", city: "Los Angeles" },
+  { code: "LGA", city: "New York (LaGuardia)" },
+  { code: "MCO", city: "Orlando" },
+  { code: "MIA", city: "Miami" },
+  { code: "MSP", city: "Minneapolis" },
+  { code: "ORD", city: "Chicago (O'Hare)" },
+  { code: "PDX", city: "Portland" },
+  { code: "PHL", city: "Philadelphia" },
+  { code: "PHX", city: "Phoenix" },
+  { code: "SAN", city: "San Diego" },
+  { code: "SEA", city: "Seattle" },
+  { code: "SFO", city: "San Francisco" },
+  { code: "SLC", city: "Salt Lake City" },
+  { code: "TPA", city: "Tampa" },
+  { code: "YVR", city: "Vancouver" },
+  { code: "YYZ", city: "Toronto" },
+];
