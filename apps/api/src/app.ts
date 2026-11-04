@@ -7,6 +7,7 @@ import type { RateGroup } from "./limits/rate-limit.js";
 import { healthRoutes } from "./routes/health.js";
 import { installRoutes } from "./routes/install.js";
 import { prefetchRoutes } from "./routes/prefetch.js";
+import { sessionRoutes } from "./routes/sessions.js";
 
 declare module "fastify" {
   interface FastifyContextConfig {
@@ -23,12 +24,15 @@ export interface AppOptions {
   logger?: boolean;
   /** Set when running behind a load balancer so request.ip is the client IP. */
   trustProxy?: boolean;
+  /** Destroy every open connection on close instead of only idle ones. */
+  forceCloseConnections?: boolean;
 }
 
 export async function buildApp(deps: Deps, opts: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: opts.logger ?? false,
     trustProxy: opts.trustProxy ?? false,
+    forceCloseConnections: opts.forceCloseConnections ?? "idle",
     bodyLimit: 16 * 1024,
     ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
   });
@@ -86,5 +90,6 @@ export async function buildApp(deps: Deps, opts: AppOptions = {}): Promise<Fasti
   await app.register(healthRoutes);
   await app.register(async (scope) => installRoutes(scope, deps));
   await app.register(async (scope) => prefetchRoutes(scope, deps));
+  await app.register(async (scope) => sessionRoutes(scope, deps));
   return app;
 }

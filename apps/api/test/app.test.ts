@@ -10,7 +10,9 @@ let app: FastifyInstance;
 let deps: Deps;
 
 beforeEach(async () => {
-  deps = createDeps(testConfig(), redis(), {} as MessagesApi, { sleep: async () => {} });
+  deps = createDeps(testConfig(), redis(), {} as MessagesApi, {
+    providers: { sleep: async () => {} },
+  });
   app = await buildApp(deps);
   // A protected test route to exercise the auth and rate-limit hooks.
   app.get("/v1/test/whoami", { config: { rateGroup: "sessions" } }, async (req) => ({

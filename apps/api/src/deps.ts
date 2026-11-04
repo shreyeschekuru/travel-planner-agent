@@ -5,6 +5,7 @@ import { RedisSemaphore } from "./limits/semaphore.js";
 import { SpendGuard } from "./limits/spend.js";
 import { LlmClient, createAnthropicMessages, type MessagesApi } from "./llm/client.js";
 import { createSearch, type ProviderOverrides } from "./providers/index.js";
+import { SessionRunner } from "./orchestrator/run-session.js";
 import type { SearchService } from "./search/search.js";
 import { Cache } from "./store/cache.js";
 import { EventStore } from "./store/events.js";
@@ -22,30 +23,52 @@ export interface Deps {
   cache: Cache;
   llm: LlmClient;
   search: SearchService;
+  runner: SessionRunner;
+  /** How long one XREAD waits before the stream sends a keep-alive comment. */
+  sseHeartbeatMs: number;
+}
+
+export interface DepsOptions {
+  providers?: ProviderOverrides;
+  sseHeartbeatMs?: number;
+  log?: (err: unknown, msg: string) => void;
 }
 
 export function createDeps(
   config: Config,
   redis: RedisClient,
   messages: MessagesApi = createAnthropicMessages(config.ANTHROPIC_API_KEY),
-  providers: ProviderOverrides = {},
+  opts: DepsOptions = {},
 ): Deps {
   const spend = new SpendGuard(redis, config.LLM_DAILY_SPEND_CAP_USD);
   const cache = new Cache(redis);
+  const sessions = new SessionStore(redis);
+  const events = new EventStore(redis);
+  const search = createSearch(config, redis, cache, opts.providers);
+  const llm = new LlmClient({
+    messages,
+    spend,
+    semaphore: new RedisSemaphore(redis, "llm", config.LLM_MAX_CONCURRENCY),
+  });
   return {
     config,
     redis,
     tokens: new InstallTokens(config.INSTALL_TOKEN_KEYS),
     rateLimiter: new RateLimiter(redis),
     spend,
-    sessions: new SessionStore(redis),
-    events: new EventStore(redis),
+    sessions,
+    events,
     cache,
-    llm: new LlmClient({
-      messages,
-      spend,
-      semaphore: new RedisSemaphore(redis, "llm", config.LLM_MAX_CONCURRENCY),
+    llm,
+    search,
+    runner: new SessionRunner({
+      redis,
+      sessions,
+      events,
+      search,
+      llm,
+      ...(opts.log ? { log: opts.log } : {}),
     }),
-    search: createSearch(config, redis, cache, providers),
+    sseHeartbeatMs: opts.sseHeartbeatMs ?? 15_000,
   };
 }

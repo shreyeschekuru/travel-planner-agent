@@ -62,11 +62,12 @@ travellite/
 │  └─ schema/          # Zod schemas + TS types shared by api and extension
 ├─ apps/
 │  ├─ api/
-│  │  ├─ src/routes/        prefetch.ts · sessions.ts · events.ts · refine.ts · select.ts
+│  │  ├─ src/routes/        prefetch.ts · sessions.ts (create, events, select) · refine.ts (M3)
 │  │  ├─ src/orchestrator/  run-session.ts · rerun-branch.ts
 │  │  ├─ src/core/          constraints.ts · optimizer.ts · deltas.ts · budget-advice.ts
 │  │  ├─ src/llm/           client.ts · pricing.ts · untrusted.ts · json-items.ts
-│  │  │                     explain.ts · parse-delta.ts · grounding.ts (M2/M3)
+│  │  │                     explain.ts · explain-input.ts · fallback.ts · grounding.ts
+│  │  │                     parse-delta.ts (M3)
 │  │  ├─ src/providers/     provider.ts · http.ts · resilience.ts · breaker.ts · token-bucket.ts
 │  │  │                     duffel-flights.ts · duffel-stays.ts · viator.ts · fx.ts
 │  │  │                     normalize.ts · fixtures.ts · index.ts
@@ -364,11 +365,13 @@ Session routes return `404` unless the session's `install_id` matches the token.
 | Provider breaker open | Cache if within TTL, else `degraded` |
 | Malformed provider items | Dropped, counted |
 | All categories degraded | `error` (retryable) |
-| No package fits budget | `budget_advice`, no LLM call |
+| No package fits budget | `budget_advice`, no LLM call; status `awaiting_selection` so a refinement can continue |
+| No flight or hotel passes the non-budget constraints | `error NOT_FOUND` (not retryable); status `awaiting_selection` |
+| Flights or hotels degraded | `error` with the provider's code (retryable); a package needs both |
 | LLM error / refusal / max_tokens | Code-generated bullets |
 | Claim fails grounding | Claim dropped |
 | Free-text delta unparseable | "Couldn't apply that, try a chip" |
-| Spend cap reached | `error SPEND_CAP`; packages still served without explanations |
+| Spend cap reached | Code-generated bullets, no LLM call (same as any LLM failure; no `error` event, since the packages are still usable) |
 | SSE disconnect | Client resumes from `Last-Event-ID` |
 | Instance restart mid-run | Session re-run from cached results |
 

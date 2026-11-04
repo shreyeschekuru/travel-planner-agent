@@ -14,6 +14,7 @@ import type { ActivitySearchParams } from "../providers/viator.js";
 import type { FlightSearchParams } from "../providers/duffel-flights.js";
 import type { HotelSearchParams } from "../providers/duffel-stays.js";
 import type { ProviderError, Result, SearchProvider } from "../providers/provider.js";
+import type { GridPair } from "../core/budget-advice.js";
 import { datePairs, type DatePair } from "./date-pairs.js";
 
 /** TTLs per design.md §5.3. Options outlive every list that references them. */
@@ -134,6 +135,28 @@ export class SearchService {
     );
   }
 
+  /**
+   * Flights and hotels already in the cache for date pairs within ±window days. Never calls a
+   * provider; used to suggest nearby dates that fit the budget.
+   */
+  async cachedGrid(req: SearchRequest, window: number): Promise<GridPair[]> {
+    const city = cityById(req.destination);
+    if (!city) return [];
+    const pairs = datePairs(req.depart, req.return, window, this.now());
+    const grid = await Promise.all(
+      pairs.map(async (pair) => {
+        const [flights, hotels] = await Promise.all([
+          this.cached(cacheNames.flights(req, pair, city.iata)),
+          this.cached(cacheNames.hotels(city, pair, req.travelers)),
+        ]);
+        return flights && hotels
+          ? { ...pair, flights: flights as FlightOption[], hotels: hotels as HotelOption[] }
+          : null;
+      }),
+    );
+    return grid.filter((g) => g !== null);
+  }
+
   /** Resolves when every fetch in flight on this instance has finished. For tests and shutdown. */
   async idle(): Promise<void> {
     while (this.inflight.size) await Promise.allSettled([...this.inflight.values()]);
@@ -165,6 +188,28 @@ export class SearchService {
     ) as Promise<Unit<ActivityOption>>;
   }
 
+  private async fetchUnit(
+    name: string,
+    ttl: number,
+    fetch: () => Promise<Result<Option[]>>,
+  ): Promise<Unit<Option>> {
+    const hit = await this.cached(name);
+    if (hit) return { ok: true, options: hit, cached: true };
+    const res = await fetch();
+    if (!res.ok) return res;
+    // Errors are never cached; empty results are, so a dead route isn't re-queried.
+    await Promise.all([
+      this.cache.setJson(name, res.value, ttl),
+      this.cache.putOptions(res.value, TTL_SECONDS.option),
+    ]);
+    return { ok: true, options: res.value, cached: false };
+  }
+
+  private async cached(name: string): Promise<Option[] | null> {
+    const hit = CachedOptions.safeParse(await this.cache.getJson(name));
+    return hit.success ? hit.data : null;
+  }
+
   private unit(
     category: OptionCategory,
     name: string,
@@ -173,22 +218,20 @@ export class SearchService {
   ): Promise<Unit<Option>> {
     const existing = this.inflight.get(name);
     if (existing) return existing;
+    let unit: Unit<Option> = { ok: false, error: { kind: "UNAVAILABLE" } };
+    // The span records only a summary: no places, dates or option payloads (design.md §9).
     const run = traceable(
-      async (cacheKey: string): Promise<Unit<Option>> => {
-        const hit = CachedOptions.safeParse(await this.cache.getJson(cacheKey));
-        if (hit.success) return { ok: true, options: hit.data, cached: true };
-        const res = await fetch();
-        if (!res.ok) return res;
-        // Errors are never cached; empty results are, so a dead route isn't re-queried.
-        await Promise.all([
-          this.cache.setJson(cacheKey, res.value, ttl),
-          this.cache.putOptions(res.value, TTL_SECONDS.option),
-        ]);
-        return { ok: true, options: res.value, cached: false };
+      async (_span: { category: OptionCategory }) => {
+        unit = await this.fetchUnit(name, ttl, fetch);
+        return unit.ok
+          ? { cache_hit: unit.cached, count: unit.options.length }
+          : { degraded: unit.error.kind };
       },
       { name: `search.${category}`, run_type: "tool" },
     );
-    const promise = run(name).finally(() => this.inflight.delete(name));
+    const promise = run({ category })
+      .then(() => unit)
+      .finally(() => this.inflight.delete(name));
     this.inflight.set(name, promise);
     return promise;
   }
