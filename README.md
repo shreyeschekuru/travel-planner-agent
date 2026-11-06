@@ -40,6 +40,18 @@ fixture mode (`PROVIDER_MODE=fixture`) and replays `fixtures/`, so no provider k
 To call the real APIs, set `PROVIDER_MODE=live`, `DUFFEL_ACCESS_TOKEN` (a `duffel_test_…`
 token works) and `VIATOR_API_KEY`.
 
+To mix live and fixture data, leave `PROVIDER_MODE=fixture` and switch providers one at a time.
+`PROVIDER_MODE=live` overrides these and makes everything live.
+
+| Setting                | Provider                                             | Key needed when live  |
+| ---------------------- | ---------------------------------------------------- | --------------------- |
+| `FLIGHTS_MODE=live`    | Duffel flights                                       | `DUFFEL_ACCESS_TOKEN` |
+| `HOTELS_MODE=live`     | Duffel Stays (must be enabled on the Duffel account) | `DUFFEL_ACCESS_TOKEN` |
+| `ACTIVITIES_MODE=live` | Viator                                               | `VIATOR_API_KEY`      |
+
+Fixture and live results are cached under separate keys, so changing a mode and restarting
+never serves cached results from the other mode.
+
 ```bash
 npm run fixtures:record -w @travellite/api   # record real responses (needs both keys)
 npm run fixtures:synth -w @travellite/api    # regenerate the synthetic fixtures

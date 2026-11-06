@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { Config } from "../config.js";
+import { providerModes, type Config, type ProviderMode } from "../config.js";
 import type { Cache } from "../store/cache.js";
 import type { RedisClient } from "../store/redis.js";
 import { SearchService, type SearchProviders } from "../search/search.js";
@@ -37,11 +37,13 @@ export function createProviders(
   cache: Cache,
   overrides: ProviderOverrides = {},
 ): SearchProviders {
-  const transport =
+  const modes = providerModes(config);
+  let fixtures: Transport | undefined;
+  const transportFor = (mode: ProviderMode): Transport =>
     overrides.transport ??
-    (config.PROVIDER_MODE === "live"
+    (mode === "live"
       ? fetchTransport
-      : fixturesFor(config.FIXTURES_DIR ?? findFixturesDir()));
+      : (fixtures ??= fixturesFor(config.FIXTURES_DIR ?? findFixturesDir())));
   const duffelToken = config.DUFFEL_ACCESS_TOKEN ?? FIXTURE_SECRET;
   const viatorKey = config.VIATOR_API_KEY ?? FIXTURE_SECRET;
   const sleep = overrides.sleep ? { sleep: overrides.sleep } : {};
@@ -49,10 +51,10 @@ export function createProviders(
   // Flights and hotels share Duffel's rate limit and breaker.
   const duffelBreaker = new CircuitBreaker();
   const duffelBucket = new TokenBucket(redis, "duffel", config.DUFFEL_RATE_PER_SEC);
-  const duffel = (timeoutMs: number) =>
+  const duffel = (timeoutMs: number, mode: ProviderMode) =>
     new ResilientHttp({
       provider: "duffel",
-      transport,
+      transport: transportFor(mode),
       breaker: duffelBreaker,
       bucket: duffelBucket,
       timeoutMs,
@@ -60,25 +62,32 @@ export function createProviders(
     });
   const viatorHttp = new ResilientHttp({
     provider: "viator",
-    transport,
+    transport: transportFor(modes.activities),
     breaker: new CircuitBreaker(),
     bucket: new TokenBucket(redis, "viator", config.VIATOR_RATE_PER_SEC),
     timeoutMs: TIMEOUTS_MS.activities,
     ...sleep,
   });
-  const fx = new Fx(transport, cache);
+  // Live Duffel prices need live exchange rates; fixture prices match the recorded rates.
+  const fxMode = modes.flights === "live" || modes.hotels === "live" ? "live" : "fixture";
+  const fx = new Fx(
+    transportFor(fxMode),
+    cache,
+    undefined,
+    fxMode === "fixture" ? "fixture:fx:ecb" : undefined,
+  );
   const dropped = (provider: string) => (count: number) => overrides.onDropped?.(provider, count);
 
   return {
     flights: new DuffelFlights({
-      http: duffel(TIMEOUTS_MS.flights),
+      http: duffel(TIMEOUTS_MS.flights, modes.flights),
       fx,
       token: duffelToken,
       supplierTimeoutMs: TIMEOUTS_MS.flightsSupplier,
       onDropped: dropped("duffel.flights"),
     }),
     hotels: new DuffelStays({
-      http: duffel(TIMEOUTS_MS.hotels),
+      http: duffel(TIMEOUTS_MS.hotels, modes.hotels),
       fx,
       token: duffelToken,
       onDropped: dropped("duffel.stays"),
@@ -98,5 +107,10 @@ export function createSearch(
   cache: Cache,
   overrides: ProviderOverrides = {},
 ) {
-  return new SearchService(cache, createProviders(config, redis, cache, overrides));
+  return new SearchService(
+    cache,
+    createProviders(config, redis, cache, overrides),
+    undefined,
+    providerModes(config),
+  );
 }

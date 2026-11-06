@@ -9,6 +9,7 @@ import {
 } from "@travellite/schema";
 import { traceable } from "langsmith/traceable";
 import { z } from "zod";
+import type { ProviderModes } from "../config.js";
 import type { Cache } from "../store/cache.js";
 import type { ActivitySearchParams } from "../providers/viator.js";
 import type { FlightSearchParams } from "../providers/duffel-flights.js";
@@ -87,7 +88,13 @@ export class SearchService {
     private readonly cache: Cache,
     private readonly providers: SearchProviders,
     private readonly now: () => Date = () => new Date(),
+    /** Fixture results are cached under "fixture:" so switching a provider live never serves them. */
+    private readonly modes?: ProviderModes,
   ) {}
+
+  private key(category: keyof ProviderModes, name: string) {
+    return this.modes?.[category] === "fixture" ? `fixture:${name}` : name;
+  }
 
   async search(req: SearchRequest, signal?: AbortSignal): Promise<SearchResults> {
     const city = cityById(req.destination);
@@ -202,8 +209,8 @@ export class SearchService {
     const grid = await Promise.all(
       pairs.map(async (pair) => {
         const [flights, hotels] = await Promise.all([
-          this.cached(cacheNames.flights(req, pair, city.iata)),
-          this.cached(cacheNames.hotels(city, pair, req.travelers)),
+          this.cached(this.key("flights", cacheNames.flights(req, pair, city.iata))),
+          this.cached(this.key("hotels", cacheNames.hotels(city, pair, req.travelers))),
         ]);
         return flights && hotels
           ? { ...pair, flights: flights as FlightOption[], hotels: hotels as HotelOption[] }
@@ -226,21 +233,30 @@ export class SearchService {
       return: pair.return,
       travelers: req.travelers,
     };
-    return this.unit("flight", cacheNames.flights(req, pair, city.iata), TTL_SECONDS.flight, () =>
-      this.providers.flights.search(params, signal),
+    return this.unit(
+      "flight",
+      this.key("flights", cacheNames.flights(req, pair, city.iata)),
+      TTL_SECONDS.flight,
+      () => this.providers.flights.search(params, signal),
     ) as Promise<Unit<FlightOption>>;
   }
 
   private hotelUnit(req: SearchRequest, city: City, pair: DatePair, signal?: AbortSignal) {
     const params = { city, checkin: pair.depart, checkout: pair.return, travelers: req.travelers };
-    return this.unit("hotel", cacheNames.hotels(city, pair, req.travelers), TTL_SECONDS.hotel, () =>
-      this.providers.hotels.search(params, signal),
+    return this.unit(
+      "hotel",
+      this.key("hotels", cacheNames.hotels(city, pair, req.travelers)),
+      TTL_SECONDS.hotel,
+      () => this.providers.hotels.search(params, signal),
     ) as Promise<Unit<HotelOption>>;
   }
 
   private activities(city: City, signal?: AbortSignal) {
-    return this.unit("activity", cacheNames.activities(city), TTL_SECONDS.activity, () =>
-      this.providers.activities.search({ city }, signal),
+    return this.unit(
+      "activity",
+      this.key("activities", cacheNames.activities(city)),
+      TTL_SECONDS.activity,
+      () => this.providers.activities.search({ city }, signal),
     ) as Promise<Unit<ActivityOption>>;
   }
 

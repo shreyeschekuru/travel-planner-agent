@@ -25,6 +25,8 @@ export class Fx {
     private readonly transport: Transport,
     private readonly cache: JsonCache,
     private readonly timeoutMs = 2000,
+    /** Fixture rates are cached apart from live ones. */
+    private readonly cacheName = CACHE_NAME,
   ) {}
 
   /** Null when the rate is unknown; callers drop the item. */
@@ -45,7 +47,7 @@ export class Fx {
   }
 
   private async load(): Promise<Rates | null> {
-    const cached = await this.cache.getJson<Rates>(CACHE_NAME);
+    const cached = await this.cache.getJson<Rates>(this.cacheName);
     if (cached) return cached;
     try {
       const res = await this.transport(
@@ -55,7 +57,7 @@ export class Fx {
       if (res.status !== 200 || typeof res.body !== "string") return null;
       const rates = parseEcbXml(res.body);
       if (!rates.USD) return null;
-      await this.cache.setJson(CACHE_NAME, rates, CACHE_TTL_SECONDS);
+      await this.cache.setJson(this.cacheName, rates, CACHE_TTL_SECONDS);
       return rates;
     } catch {
       return null;

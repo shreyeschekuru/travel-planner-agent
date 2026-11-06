@@ -151,14 +151,14 @@ describe("POST /v1/prefetch", () => {
     await deps.search.idle();
     const t = trip();
     const flights = await deps.cache.getJson<unknown[]>(
-      `flights:JFK:LIS:${t.departure_date}:${t.return_date}:2`,
+      `fixture:flights:JFK:LIS:${t.departure_date}:${t.return_date}:2`,
     );
     const hotels = await deps.cache.getJson<unknown[]>(
-      `hotels:lisbon-pt:${t.departure_date}:${t.return_date}:2`,
+      `fixture:hotels:lisbon-pt:${t.departure_date}:${t.return_date}:2`,
     );
     expect(flights).toHaveLength(10);
     expect(hotels).toHaveLength(10);
-    expect(await deps.cache.getJson("activities:lisbon-pt")).toBeNull();
+    expect(await deps.cache.getJson("fixture:activities:lisbon-pt")).toBeNull();
   });
 
   it("warms once for identical requests", async () => {
@@ -166,7 +166,7 @@ describe("POST /v1/prefetch", () => {
     await prefetch(trip(), token);
     await deps.search.idle();
     await deps.cache.setJson(
-      `flights:JFK:LIS:${trip().departure_date}:${trip().return_date}:2`,
+      `fixture:flights:JFK:LIS:${trip().departure_date}:${trip().return_date}:2`,
       [],
       60,
     );
@@ -174,7 +174,9 @@ describe("POST /v1/prefetch", () => {
     await deps.search.idle();
     // The second request didn't refetch, so the planted value survives.
     expect(
-      await deps.cache.getJson(`flights:JFK:LIS:${trip().departure_date}:${trip().return_date}:2`),
+      await deps.cache.getJson(
+        `fixture:flights:JFK:LIS:${trip().departure_date}:${trip().return_date}:2`,
+      ),
     ).toEqual([]);
   });
 

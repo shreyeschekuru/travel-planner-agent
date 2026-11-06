@@ -30,6 +30,9 @@ const csv = z
       .filter(Boolean),
   );
 
+const ProviderMode = z.enum(["fixture", "live"]);
+export type ProviderMode = z.infer<typeof ProviderMode>;
+
 export const ConfigSchema = z
   .object({
     PORT: z.coerce.number().int().positive().default(3000),
@@ -40,8 +43,14 @@ export const ConfigSchema = z
     ANTHROPIC_API_KEY: z.string().optional(),
     LLM_DAILY_SPEND_CAP_USD: z.coerce.number().positive().default(20),
     LLM_MAX_CONCURRENCY: z.coerce.number().int().positive().default(20),
-    /** "fixture" replays fixtures/ and needs no provider credentials. */
-    PROVIDER_MODE: z.enum(["fixture", "live"]).default("fixture"),
+    /**
+     * "fixture" replays fixtures/ and needs no provider credentials. "live" makes every provider
+     * live and overrides the per-provider modes below, which apply only in fixture mode.
+     */
+    PROVIDER_MODE: ProviderMode.default("fixture"),
+    FLIGHTS_MODE: ProviderMode.default("fixture"),
+    HOTELS_MODE: ProviderMode.default("fixture"),
+    ACTIVITIES_MODE: ProviderMode.default("fixture"),
     FIXTURES_DIR: z.string().optional(),
     DUFFEL_ACCESS_TOKEN: z.string().optional(),
     VIATOR_API_KEY: z.string().optional(),
@@ -57,13 +66,36 @@ export const ConfigSchema = z
         message: "Required in production (the event stream checks Origin against it)",
       });
     }
-    if (c.PROVIDER_MODE !== "live") return;
-    for (const key of ["DUFFEL_ACCESS_TOKEN", "VIATOR_API_KEY"] as const) {
-      if (!c[key])
-        ctx.addIssue({ code: "custom", path: [key], message: "Required when PROVIDER_MODE=live" });
+    const modes = providerModes(c);
+    const why = (setting: string) =>
+      c.PROVIDER_MODE === "live" ? "PROVIDER_MODE=live" : `${setting}=live`;
+    const required: [boolean, "DUFFEL_ACCESS_TOKEN" | "VIATOR_API_KEY", string][] = [
+      [modes.flights === "live", "DUFFEL_ACCESS_TOKEN", why("FLIGHTS_MODE")],
+      [modes.hotels === "live", "DUFFEL_ACCESS_TOKEN", why("HOTELS_MODE")],
+      [modes.activities === "live", "VIATOR_API_KEY", why("ACTIVITIES_MODE")],
+    ];
+    const reported = new Set<string>();
+    for (const [live, key, reason] of required) {
+      if (!live || c[key] || reported.has(key)) continue;
+      reported.add(key);
+      ctx.addIssue({ code: "custom", path: [key], message: `Required when ${reason}` });
     }
   });
 export type Config = z.infer<typeof ConfigSchema>;
+
+export interface ProviderModes {
+  flights: ProviderMode;
+  hotels: ProviderMode;
+  activities: ProviderMode;
+}
+
+/** PROVIDER_MODE=live makes every provider live; otherwise each follows its own setting. */
+export function providerModes(
+  c: Pick<Config, "PROVIDER_MODE" | "FLIGHTS_MODE" | "HOTELS_MODE" | "ACTIVITIES_MODE">,
+): ProviderModes {
+  if (c.PROVIDER_MODE === "live") return { flights: "live", hotels: "live", activities: "live" };
+  return { flights: c.FLIGHTS_MODE, hotels: c.HOTELS_MODE, activities: c.ACTIVITIES_MODE };
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = ConfigSchema.safeParse(env);

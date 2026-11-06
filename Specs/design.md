@@ -247,6 +247,7 @@ type ProviderError = { kind: "TIMEOUT" | "RATE_LIMIT" | "NOT_FOUND" | "BAD_PAYLO
 - Destinations come from a fixed catalog (`packages/schema/src/cities.ts`) holding IATA code and city center. Viator destination IDs and tag names are looked up at runtime and cached 7 days.
 - **Flights with flex dates:** the whole trip shifts by −flex…+flex days (≤ 5 pairs, trip length unchanged). Duffel has no cheapest-date endpoint, so every pair is a full offer request, run in parallel and cached separately. The 3 pairs with the cheapest offers are kept, plus the top 10 flights across them. Hotels are searched for every candidate pair alongside flights and filtered to the kept pairs.
 - **Fixture mode** (`PROVIDER_MODE=fixture`, the default): replays `fixtures/` with dates shifted to the request. See `fixtures/README.md`.
+  - In fixture mode, `FLIGHTS_MODE`, `HOTELS_MODE` and `ACTIVITIES_MODE` can each be set to `live` to call that provider for real. `PROVIDER_MODE=live` overrides them and makes every provider live. Fixture results are cached under a `fixture:` prefix, so switching a provider to live never serves them.
 
 ### 5.3 Search cache 🟢
 | Key | TTL |
