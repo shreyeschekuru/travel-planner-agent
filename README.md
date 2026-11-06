@@ -1,77 +1,104 @@
-# Travellite
+# <img src="apps/extension/public/icons/icon-128.png" alt="" width="40" align="center"> Travellite
 
-Browser extension that plans whole trips (flight + hotel + activities) against a total budget.
-Specs live in `Specs/`; architecture decisions in `architecture-options/`.
+A Chrome extension that plans a whole trip — flight, hotel and activities — within one total budget.
 
-## Layout
+Tell it where you're flying from, where you want to go, your dates and your budget. It searches
+real flights, hotels and activities, then shows up to three complete trips that fit:
+
+- **Best value**: the most trip for the money
+- **Best location**: a hotel closer to the center
+- **Upgrade**: a better hotel or flight, if the budget allows
+
+Each trip comes with a short summary explaining why it was picked. If nothing fits, Travellite
+tells you exactly why, for example "No hotels rated 4.5+ (the highest rated is 4.2)" or the
+cheapest flight + hotel for your dates, so you know what to change.
+
+Not quite right? Refine it with one click ("Cheaper hotel", "Fewer stops", "A day earlier") or
+in your own words ("hotels under $150 a night"), up to 10 times. When you pick a trip, it's saved
+under **My trips** with booking links.
+
+## Run it
+
+You need Node 22.12+, Docker and Chrome.
+
+```bash
+npm install
+cp .env.example .env              # set INSTALL_TOKEN_KEYS to a random secret (32+ chars)
+docker compose up -d redis        # Redis on localhost:6379
+npm run dev                       # API on http://localhost:3000
+npm run build -w @travellite/extension
+```
+
+Then in Chrome: open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**
+and choose `apps/extension/dist`. Pin the Travellite icon and start planning.
+
+Out of the box it uses recorded sample data, so no provider accounts are needed.
+
+### Settings (`.env`)
+
+| Setting                                          | What it does                                                                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`                              | Writes the trip summaries and understands typed refinements. Without it, summaries are simpler and typed refinements are off. |
+| `PROVIDER_MODE`                                  | `fixture` (default) uses sample data; `live` makes every provider live.                                                       |
+| `FLIGHTS_MODE`, `HOTELS_MODE`, `ACTIVITIES_MODE` | With `PROVIDER_MODE=fixture`, set any of these to `live` to use real data for just that part.                                 |
+| `DUFFEL_ACCESS_TOKEN`                            | Needed for live flights or hotels ([Duffel](https://duffel.com/docs); hotel search must be enabled on the account).           |
+| `VIATOR_API_KEY`                                 | Needed for live activities ([Viator Partner API](https://docs.viator.com/partner-api/)).                                      |
+
+Restart `npm run dev` after changing `.env`.
+
+## How it works
 
 ```
-packages/schema   Zod schemas + types shared by the API and the extension
-apps/api          Fastify API (Node 22+)
-apps/extension    Chrome MV3 extension (React + Vite)
-fixtures          Recorded provider responses (see fixtures/README.md)
+ Chrome extension                         API server                       Outside services
+┌──────────────────────┐   HTTPS    ┌──────────────────────────────┐
+│ Popup (React)        │──────────▶ │ 1. Constraints from your trip │
+│  trip form, results, │            │ 2. Search in parallel ────────┼──▶ Duffel (flights, hotels)
+│  refine bar, My trips│            │ 3. Optimizer picks 3 trips    │──▶ Viator (activities)
+│                      │ ◀───────── │ 4. Summaries, streamed ───────┼──▶ Claude (summaries)
+│ Background worker    │  live      │                              │
+│  keeps the trip going│  updates   │ Redis: sessions, events,      │
+│  if the popup closes │  (SSE)     │ cached prices, rate limits    │
+└──────────────────────┘            └──────────────────────────────┘
+```
+
+**The flow**
+
+1. **While you type**, once the route and dates are valid, the extension asks the API to start
+   fetching prices, so results are often ready by the time you submit.
+2. **When you submit**, the API searches flights, hotels and activities at the same time,
+   including nearby dates if you chose flexible dates.
+3. **The optimizer**, plain code with no AI, adds up the real totals and keeps only trips within
+   your budget and filters. It then picks the best value, best location and upgrade options.
+4. **Claude writes a short summary** of each trip. Every number in a summary is checked against
+   the actual prices before it's shown.
+5. **Results stream** into the popup as each step finishes. You can close the popup; the
+   background worker keeps following the trip and picks up where it left off.
+6. **Refinements** change only what's affected. "Cheaper hotel" re-ranks hotels without searching
+   flights again.
+7. **Choosing a trip** saves it in your browser, and the server forgets the session.
+
+**Reliability.** Each provider call has a timeout, one retry and a circuit breaker. Prices are
+cached so repeated searches are fast. If activities fail, you still get trips without them. If
+flights or hotels fail, you get a message naming the exact cause.
+
+**Privacy.** Saved trips stay in your browser. The server keeps a trip only while you're planning
+it.
+
+## Project layout
+
+```
+apps/extension    Chrome extension (React, Vite, Manifest V3)
+apps/api          API server (Node, Fastify, Redis)
+packages/schema   Data types shared by both
+fixtures          Recorded sample data for running without provider accounts
+Specs             Requirements and detailed design
 ```
 
 ## Development
 
-Requirements: Node 22.12+, Docker (for Redis).
-
 ```bash
-npm install
-cp .env.example .env            # then set INSTALL_TOKEN_KEYS to a real secret
-docker compose up -d redis      # Redis on localhost:6379 (required by the API and tests)
-npm run dev                     # API on http://localhost:3000
-npm run build -w @travellite/extension   # then load apps/extension/dist as an unpacked extension
+npm run ci        # lint, format, typecheck, tests and build (needs Redis)
 ```
 
-To try the whole flow: run the API (fixture mode needs no provider keys), build the
-extension, then in Chrome open `chrome://extensions`, turn on Developer mode, choose
-"Load unpacked" and pick `apps/extension/dist`. Without `ANTHROPIC_API_KEY`, package
-summaries fall back to code-written bullets and free-text refinements are refused.
-
-The extension calls `http://localhost:3000` by default. Production builds require an https
-`VITE_API_BASE`, e.g. `VITE_API_BASE=https://api.travellite.dev npm run build -w @travellite/extension`.
-
-## Search providers
-
-Flights and hotels come from [Duffel](https://duffel.com/docs), activities from the
-[Viator Partner API](https://docs.viator.com/partner-api/). By default the API runs in
-fixture mode (`PROVIDER_MODE=fixture`) and replays `fixtures/`, so no provider keys are needed.
-To call the real APIs, set `PROVIDER_MODE=live`, `DUFFEL_ACCESS_TOKEN` (a `duffel_test_…`
-token works) and `VIATOR_API_KEY`.
-
-To mix live and fixture data, leave `PROVIDER_MODE=fixture` and switch providers one at a time.
-`PROVIDER_MODE=live` overrides these and makes everything live.
-
-| Setting                | Provider                                             | Key needed when live  |
-| ---------------------- | ---------------------------------------------------- | --------------------- |
-| `FLIGHTS_MODE=live`    | Duffel flights                                       | `DUFFEL_ACCESS_TOKEN` |
-| `HOTELS_MODE=live`     | Duffel Stays (must be enabled on the Duffel account) | `DUFFEL_ACCESS_TOKEN` |
-| `ACTIVITIES_MODE=live` | Viator                                               | `VIATOR_API_KEY`      |
-
-Fixture and live results are cached under separate keys, so changing a mode and restarting
-never serves cached results from the other mode.
-
-```bash
-npm run fixtures:record -w @travellite/api   # record real responses (needs both keys)
-npm run fixtures:synth -w @travellite/api    # regenerate the synthetic fixtures
-```
-
-## Checks
-
-```bash
-npm run ci        # lint, format check, typecheck, tests, build (needs Redis)
-```
-
-API tests use Redis DB 15 and flush it before each test, so they don't touch development data.
-The extension's end-to-end test drives the service worker's code against a running API:
-
-```bash
-E2E_API_BASE=http://localhost:3000 npm test -w @travellite/extension
-```
-
-Live LLM tests are off by default because they call the API and cost money:
-
-```bash
-LIVE_LLM_TESTS=1 ANTHROPIC_API_KEY=... npm test -w @travellite/api
-```
+More detail: `Specs/design.md` covers the architecture, and `fixtures/README.md` covers
+recording and sample data.
