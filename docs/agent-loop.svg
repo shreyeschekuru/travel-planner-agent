@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="690" viewBox="0 0 1000 690" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Travellite agent loop</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#12343B"/>
+    </marker>
+    <marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#C97F14"/>
+    </marker>
+    <style>
+      .h { font-size: 18px; font-weight: 700; fill: #12343B; }
+      .t { font-size: 14px; font-weight: 700; fill: #12343B; }
+      .s { font-size: 12px; fill: #4A5B5E; }
+      .l { font-size: 12px; font-weight: 600; fill: #12343B; }
+      .lo { font-size: 12px; font-weight: 600; fill: #C97F14; }
+      .code { fill: #FFFFFF; stroke: #12343B; stroke-width: 1.5; }
+      .ai { fill: #FFF6E6; stroke: #F2A541; stroke-width: 1.8; }
+      .you { fill: #12343B; }
+      .line { stroke: #12343B; stroke-width: 1.6; fill: none; }
+      .refine { stroke: #C97F14; stroke-width: 1.8; fill: none; }
+      .dash { stroke: #12343B; stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+      .badge { font-size: 10px; font-weight: 700; fill: #12343B; letter-spacing: .5px; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="690" rx="16" fill="#F7F3EA"/>
+  <text x="30" y="40" class="h">The agent loop</text>
+  <text x="30" y="60" class="s">Code makes every decision about prices and fit. Claude only reads and writes language.</text>
+
+  <!-- Legend -->
+  <rect x="690" y="28" width="16" height="16" rx="4" class="code"/>
+  <text x="712" y="41" class="s">Code</text>
+  <rect x="760" y="28" width="16" height="16" rx="4" class="ai"/>
+  <text x="782" y="41" class="s">Claude</text>
+  <rect x="840" y="28" width="16" height="16" rx="4" class="you"/>
+  <text x="862" y="41" class="s">You</text>
+
+  <!-- Your trip -->
+  <rect x="30" y="100" width="170" height="74" rx="10" class="you"/>
+  <text x="46" y="128" class="t" style="fill:#F7F3EA">Your trip</text>
+  <text x="46" y="148" class="s" style="fill:#F2A541">Route, dates, budget,</text>
+  <text x="46" y="164" class="s" style="fill:#F2A541">travelers, interests</text>
+
+  <!-- 1 Constraints -->
+  <rect x="250" y="100" width="190" height="74" rx="10" class="code"/>
+  <text x="266" y="128" class="t">1 · Constraints</text>
+  <text x="266" y="148" class="s">Turns your trip into</text>
+  <text x="266" y="164" class="s">hard rules and filters</text>
+
+  <!-- 2 Search -->
+  <rect x="490" y="100" width="190" height="74" rx="10" class="code"/>
+  <text x="506" y="128" class="t">2 · Search</text>
+  <text x="506" y="148" class="s">Flights, hotels, activities</text>
+  <text x="506" y="164" class="s">in parallel, cache first</text>
+
+  <!-- 3 Optimizer -->
+  <rect x="770" y="100" width="200" height="74" rx="10" class="code"/>
+  <text x="786" y="128" class="t">3 · Optimizer</text>
+  <text x="786" y="148" class="s">Real totals, budget check,</text>
+  <text x="786" y="164" class="s">picks 3 distinct trips</text>
+
+  <path d="M200,137 L248,137" class="line" marker-end="url(#a)"/>
+  <path d="M440,137 L488,137" class="line" marker-end="url(#a)"/>
+  <path d="M680,137 L768,137" class="line" marker-end="url(#a)"/>
+
+  <!-- 4 Explain -->
+  <rect x="770" y="280" width="200" height="90" rx="10" class="ai"/>
+  <text x="786" y="308" class="t">4 · Explain</text>
+  <text x="786" y="328" class="s">Claude writes a summary</text>
+  <text x="786" y="344" class="s">per trip; every number is</text>
+  <text x="786" y="360" class="s">checked against the data</text>
+  <path d="M870,174 L870,278" class="line" marker-end="url(#a)"/>
+  <text x="880" y="230" class="l">Trips fit</text>
+
+  <!-- No fit -->
+  <rect x="490" y="280" width="190" height="90" rx="10" class="code"/>
+  <text x="506" y="308" class="t">Diagnose</text>
+  <text x="506" y="328" class="s">Names the exact reason,</text>
+  <text x="506" y="344" class="s">e.g. "no hotels rated 4.5+"</text>
+  <text x="506" y="360" class="s">plus the cheapest option</text>
+  <path d="M800,174 L680,278" class="dash" marker-end="url(#a)"/>
+  <text x="722" y="232" class="l" text-anchor="end">Nothing fits</text>
+
+  <!-- 5 Present -->
+  <rect x="770" y="460" width="200" height="74" rx="10" class="code"/>
+  <text x="786" y="488" class="t">5 · Present</text>
+  <text x="786" y="508" class="s">Streams trips and summaries</text>
+  <text x="786" y="524" class="s">to the extension, then waits</text>
+  <path d="M870,370 L870,458" class="line" marker-end="url(#a)"/>
+  <path d="M640,370 L790,458" class="dash" marker-end="url(#a)"/>
+
+  <!-- Decision -->
+  <path d="M600,452 L660,497 L600,542 L540,497 Z" class="you"/>
+  <text x="600" y="502" text-anchor="middle" class="t" style="fill:#F7F3EA">You</text>
+  <path d="M770,497 L662,497" class="line" marker-end="url(#a)"/>
+
+  <!-- Select exit -->
+  <path d="M600,542 L600,598" class="line" marker-end="url(#a)"/>
+  <text x="610" y="575" class="l">Select</text>
+  <rect x="500" y="600" width="200" height="64" rx="10" class="you"/>
+  <text x="516" y="626" class="t" style="fill:#F7F3EA">Trip saved</text>
+  <text x="516" y="646" class="s" style="fill:#F2A541">Itinerary + booking links</text>
+
+  <!-- 6 Understand feedback -->
+  <path d="M540,497 L442,497" class="refine" marker-end="url(#o)"/>
+  <text x="458" y="488" class="lo">Refine</text>
+  <rect x="250" y="452" width="190" height="90" rx="10" class="ai"/>
+  <text x="266" y="480" class="t">6 · Understand</text>
+  <text x="266" y="500" class="s">Chip → change, in code</text>
+  <text x="266" y="516" class="s">Typed text → change,</text>
+  <text x="266" y="532" class="s">by Claude (validated)</text>
+
+  <!-- 7 Apply -->
+  <rect x="250" y="280" width="190" height="90" rx="10" class="code"/>
+  <text x="266" y="308" class="t">7 · Apply change</text>
+  <text x="266" y="328" class="s">Updates the constraints,</text>
+  <text x="266" y="344" class="s">bounds-checked; marks what</text>
+  <text x="266" y="360" class="s">is now out of date</text>
+  <path d="M345,452 L345,372" class="refine" marker-end="url(#o)"/>
+
+  <path d="M440,300 L520,176" class="refine" marker-end="url(#o)"/>
+  <text x="255" y="214" class="lo">Re-search only what</text>
+  <text x="255" y="230" class="lo">changed; reuse the rest</text>
+
+  <text x="30" y="600" class="s">Up to 10 refinements per trip.</text>
+  <text x="30" y="618" class="s">Unchanged trips keep their summaries,</text>
+  <text x="30" y="636" class="s">so a refinement costs as little as possible.</text>
+</svg>

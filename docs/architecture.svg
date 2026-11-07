@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Travellite architecture</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#12343B"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#C97F14"/>
+    </marker>
+    <style>
+      .h { font-size: 17px; font-weight: 700; fill: #12343B; }
+      .t { font-size: 14px; font-weight: 600; fill: #12343B; }
+      .s { font-size: 12px; fill: #4A5B5E; }
+      .l { font-size: 12px; fill: #12343B; font-weight: 600; }
+      .box { fill: #FFFFFF; stroke: #12343B; stroke-width: 1.5; }
+      .step { fill: #FFF6E6; stroke: #F2A541; stroke-width: 1.5; }
+      .ext { fill: #EAF1F2; stroke: #12343B; stroke-width: 1.5; }
+      .line { stroke: #12343B; stroke-width: 1.6; fill: none; }
+      .loop { stroke: #C97F14; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="560" rx="16" fill="#F7F3EA"/>
+
+  <!-- Column headings -->
+  <text x="40" y="44" class="h">Chrome extension</text>
+  <text x="340" y="44" class="h">API server</text>
+  <text x="790" y="44" class="h">Outside services</text>
+
+  <!-- Extension -->
+  <rect x="30" y="60" width="240" height="470" rx="12" fill="none" stroke="#12343B" stroke-width="1" stroke-dasharray="4 4"/>
+  <rect x="50" y="80" width="200" height="110" rx="10" class="box"/>
+  <text x="66" y="106" class="t">Popup (React)</text>
+  <text x="66" y="130" class="s">Trip form</text>
+  <text x="66" y="148" class="s">Trip results and summaries</text>
+  <text x="66" y="166" class="s">Refine bar · My trips</text>
+
+  <rect x="50" y="230" width="200" height="130" rx="10" class="box"/>
+  <text x="66" y="256" class="t">Background worker</text>
+  <text x="66" y="280" class="s">Talks to the API</text>
+  <text x="66" y="298" class="s">Follows live updates</text>
+  <text x="66" y="316" class="s">Keeps going when the</text>
+  <text x="66" y="334" class="s">popup is closed</text>
+
+  <rect x="50" y="400" width="200" height="110" rx="10" class="box"/>
+  <text x="66" y="426" class="t">Browser storage</text>
+  <text x="66" y="450" class="s">Form draft, current trip</text>
+  <text x="66" y="468" class="s">Saved trips (IndexedDB)</text>
+  <text x="66" y="486" class="s">Never leaves your browser</text>
+
+  <path d="M150,190 L150,228" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <path d="M150,360 L150,398" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- API -->
+  <rect x="330" y="60" width="400" height="470" rx="12" fill="#FFFFFF" stroke="#12343B" stroke-width="1.5"/>
+  <text x="350" y="92" class="s">Checks install token · rate limits · validates input</text>
+
+  <rect x="350" y="108" width="170" height="54" rx="8" class="step"/>
+  <text x="366" y="131" class="t">1 · Constraints</text>
+  <text x="366" y="150" class="s">Your trip as hard rules</text>
+
+  <rect x="540" y="108" width="170" height="54" rx="8" class="step"/>
+  <text x="556" y="131" class="t">2 · Search</text>
+  <text x="556" y="150" class="s">All providers at once</text>
+
+  <rect x="540" y="190" width="170" height="54" rx="8" class="step"/>
+  <text x="556" y="213" class="t">3 · Optimizer</text>
+  <text x="556" y="232" class="s">Code picks 3 trips</text>
+
+  <rect x="350" y="190" width="170" height="54" rx="8" class="step"/>
+  <text x="366" y="213" class="t">4 · Summaries</text>
+  <text x="366" y="232" class="s">Numbers checked</text>
+
+  <path d="M520,135 L538,135" class="line" marker-end="url(#arrow)"/>
+  <path d="M625,162 L625,188" class="line" marker-end="url(#arrow)"/>
+  <path d="M540,217 L522,217" class="line" marker-end="url(#arrow)"/>
+
+  <!-- Refine loop -->
+  <path d="M435,244 C435,290 625,290 625,246" class="loop" marker-end="url(#arrow-amber)"/>
+  <text x="452" y="296" class="s" fill="#C97F14">Refine: rerun only what changed</text>
+
+  <rect x="350" y="318" width="360" height="74" rx="8" class="box"/>
+  <text x="366" y="342" class="t">Provider and AI clients</text>
+  <text x="366" y="362" class="s">Timeout · one retry · circuit breaker</text>
+  <text x="366" y="380" class="s">Rate limits · AI spend cap · checks responses</text>
+  <path d="M710,135 L720,135 L720,300 L690,300 L690,316" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="350" y="414" width="360" height="96" rx="8" class="ext"/>
+  <text x="366" y="438" class="t">Redis</text>
+  <text x="366" y="458" class="s">Sessions and their event streams</text>
+  <text x="366" y="476" class="s">Cached prices · rate limits</text>
+  <text x="366" y="494" class="s">Daily AI spend counter</text>
+  <path d="M530,392 L530,412" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+
+  <!-- Extension <-> API -->
+  <path d="M252,270 L328,270" class="line" marker-end="url(#arrow)"/>
+  <text x="290" y="262" class="l" text-anchor="middle">Requests</text>
+  <path d="M328,320 L252,320" class="line" marker-end="url(#arrow)"/>
+  <text x="290" y="338" class="l" text-anchor="middle">Live</text>
+  <text x="290" y="352" class="l" text-anchor="middle">updates</text>
+
+  <!-- Outside services -->
+  <rect x="790" y="80" width="180" height="70" rx="10" class="ext"/>
+  <text x="806" y="108" class="t">Duffel</text>
+  <text x="806" y="128" class="s">Flights and hotels</text>
+
+  <rect x="790" y="170" width="180" height="70" rx="10" class="ext"/>
+  <text x="806" y="198" class="t">Viator</text>
+  <text x="806" y="218" class="s">Activities</text>
+
+  <rect x="790" y="260" width="180" height="70" rx="10" class="ext"/>
+  <text x="806" y="288" class="t">ECB</text>
+  <text x="806" y="308" class="s">Exchange rates</text>
+
+  <rect x="790" y="350" width="180" height="70" rx="10" class="ext"/>
+  <text x="806" y="378" class="t">Claude</text>
+  <text x="806" y="398" class="s">Summaries, refinements</text>
+
+  <rect x="790" y="440" width="180" height="70" rx="10" fill="#FFFFFF" stroke="#12343B" stroke-width="1" stroke-dasharray="4 4"/>
+  <text x="806" y="468" class="t">Sample data</text>
+  <text x="806" y="488" class="s">Used instead in fixture mode</text>
+
+  <path d="M712,335 L788,115" class="line" marker-end="url(#arrow)"/>
+  <path d="M712,342 L788,205" class="line" marker-end="url(#arrow)"/>
+  <path d="M712,349 L788,295" class="line" marker-end="url(#arrow)"/>
+  <path d="M712,356 L788,385" class="line" marker-end="url(#arrow)"/>
+  <path d="M712,385 L788,475" class="line" stroke-dasharray="4 4" marker-end="url(#arrow)"/>
+</svg>

@@ -48,34 +48,16 @@ Restart `npm run dev` after changing `.env`.
 
 ## How it works
 
-```
- Chrome extension                         API server                       Outside services
-┌──────────────────────┐   HTTPS    ┌──────────────────────────────┐
-│ Popup (React)        │──────────▶ │ 1. Constraints from your trip │
-│  trip form, results, │            │ 2. Search in parallel ────────┼──▶ Duffel (flights, hotels)
-│  refine bar, My trips│            │ 3. Optimizer picks 3 trips    │──▶ Viator (activities)
-│                      │ ◀───────── │ 4. Summaries, streamed ───────┼──▶ Claude (summaries)
-│ Background worker    │  live      │                              │
-│  keeps the trip going│  updates   │ Redis: sessions, events,      │
-│  if the popup closes │  (SSE)     │ cached prices, rate limits    │
-└──────────────────────┘            └──────────────────────────────┘
-```
+![Architecture: the Chrome extension talks to the API server, which searches Duffel, Viator and Claude through resilient clients and keeps sessions and cached prices in Redis](docs/architecture.svg)
 
-**The flow**
+### Agent loop
 
-1. **While you type**, once the route and dates are valid, the extension asks the API to start
-   fetching prices, so results are often ready by the time you submit.
-2. **When you submit**, the API searches flights, hotels and activities at the same time,
-   including nearby dates if you chose flexible dates.
-3. **The optimizer**, plain code with no AI, adds up the real totals and keeps only trips within
-   your budget and filters. It then picks the best value, best location and upgrade options.
-4. **Claude writes a short summary** of each trip. Every number in a summary is checked against
-   the actual prices before it's shown.
-5. **Results stream** into the popup as each step finishes. You can close the popup; the
-   background worker keeps following the trip and picks up where it left off.
-6. **Refinements** change only what's affected. "Cheaper hotel" re-ranks hotels without searching
-   flights again.
-7. **Choosing a trip** saves it in your browser, and the server forgets the session.
+![Agent loop: your trip becomes constraints, the API searches, the optimizer picks trips or diagnoses why none fit, Claude explains them, and your refinements loop back to re-search only what changed until you select a trip](docs/agent-loop.svg)
+
+The optimizer is plain code: it adds up real totals and keeps only trips within your budget and
+filters. Claude writes the summaries and turns typed refinements into changes, and every number
+it writes is checked against the real prices. You can close the popup at any point; the
+background worker keeps following the trip and picks up where it left off.
 
 **Reliability.** Each provider call has a timeout, one retry and a circuit breaker. Prices are
 cached so repeated searches are fast. If activities fail, you still get trips without them. If
@@ -87,11 +69,24 @@ it.
 ## Project layout
 
 ```
-apps/extension    Chrome extension (React, Vite, Manifest V3)
-apps/api          API server (Node, Fastify, Redis)
-packages/schema   Data types shared by both
-fixtures          Recorded sample data for running without provider accounts
-Specs             Requirements and detailed design
+travel-planner-agent/
+├── apps/
+│   ├── extension/             Chrome extension (React, Vite, Manifest V3)
+│   │   ├── src/popup/         What you see: trip form, results, refine bar, My trips
+│   │   ├── src/worker/        Background worker: API calls, live updates, saved trips
+│   │   └── icons/             App icon source
+│   └── api/                   API server (Node, Fastify, Redis)
+│       ├── src/routes/        HTTP endpoints
+│       ├── src/orchestrator/  Runs each planning session step by step
+│       ├── src/search/        Parallel, cached search
+│       ├── src/providers/     Duffel, Viator and exchange-rate clients
+│       ├── src/core/          Constraints, optimizer, refinements, error messages
+│       └── src/llm/           Claude summaries and refinement parsing
+├── packages/
+│   └── schema/                Data types shared by the API and the extension
+├── fixtures/                  Sample data for running without provider accounts
+├── docs/                      Diagrams used in this README
+└── Specs/                     Requirements and detailed design
 ```
 
 ## Development
